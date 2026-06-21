@@ -67,13 +67,13 @@ export async function proxyResponsesApi(requestBody, route, res, context = {}) {
 
   const upstreamUrl = joinUpstreamUrl(responsesBaseUrlForRoute(route), "/responses");
   logRoute(context, route, upstreamUrl);
-  const upstream = await fetch(upstreamUrl, fetchInitWithProxy(upstreamUrl, {
+  const upstream = await fetchUpstream(upstreamUrl, {
     method: "POST",
     headers: upstreamHeaders(route, context, {
       acceptEventStream: Boolean(payload.stream),
     }),
     body: JSON.stringify(payload),
-  }));
+  }, context, route);
   logStatus(context, route, upstream.status);
 
   if (!upstream.ok) {
@@ -141,11 +141,11 @@ export async function proxyChatCompletions(
 }
 
 export async function callJsonUpstream(upstreamUrl, route, payload, context = {}) {
-  const upstream = await fetch(upstreamUrl, fetchInitWithProxy(upstreamUrl, {
+  const upstream = await fetchUpstream(upstreamUrl, {
     method: "POST",
     headers: upstreamHeaders(route, context),
     body: JSON.stringify(payload),
-  }));
+  }, context, route);
   const text = await upstream.text();
   if (!upstream.ok) {
     throw new UpstreamHttpError(upstream.status, text, upstreamUrl, route);
@@ -190,7 +190,7 @@ export function sendUpstreamError(res, error) {
   }
 
   const statusCode = error.statusCode || 500;
-  jsonResponse(res, statusCode, openAiError(error.message, statusCode));
+  jsonResponse(res, statusCode, openAiError(error.message, statusCode, error.code || "router_error"));
 }
 
 function isMissingResponsesWriteScope(parsedBody, rawBody) {
@@ -352,6 +352,41 @@ function logUsage(context, route, usage) {
     `[${new Date().toISOString()}] ${requestId} <- upstream ` +
       `route=${route.id} usage prompt=${normalized.prompt_tokens} ` +
       `completion=${normalized.completion_tokens} total=${normalized.total_tokens}`,
+  );
+}
+
+async function fetchUpstream(upstreamUrl, init, context = {}, route = {}) {
+  const proxiedInit = fetchInitWithProxy(upstreamUrl, init);
+  const usedProxy = Boolean(proxiedInit.dispatcher);
+  try {
+    return await fetch(upstreamUrl, proxiedInit);
+  } catch (error) {
+    if (!usedProxy || !isNetworkFetchFailure(error)) {
+      throw error;
+    }
+    logProxyFallback(context, route, error);
+    return fetch(upstreamUrl, init);
+  }
+}
+
+function logProxyFallback(context, route, error) {
+  const requestId = context.requestId || "req";
+  const cause = error?.cause?.code || error?.cause?.message || "";
+  console.warn(
+    `[${new Date().toISOString()}] ${requestId} !! proxy route=${route.id || "-"} ` +
+      `error=${safeText(error?.message || String(error))}` +
+      (cause ? ` cause=${safeText(cause)}` : "") +
+      " retry=direct",
+  );
+}
+
+function isNetworkFetchFailure(error) {
+  const message = String(error?.message || "");
+  const cause = String(error?.cause?.code || error?.cause?.message || "");
+  return (
+    /fetch failed/i.test(message) ||
+    /^UND_ERR_/i.test(cause) ||
+    /ECONNRESET|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH/i.test(cause)
   );
 }
 

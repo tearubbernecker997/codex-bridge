@@ -315,6 +315,57 @@ test("invalid router token response explains how to refresh CodexBridge config",
   }
 });
 
+test("missing provider API key returns a clear client configuration error", async () => {
+  const originalMoonshot = process.env.MOONSHOT_API_KEY;
+  delete process.env.MOONSHOT_API_KEY;
+
+  const router = createRouterServer({
+    host: "127.0.0.1",
+    port: 0,
+    authToken: "router-token",
+    defaultModel: "gpt-5.2",
+    models: [
+      {
+        id: "gpt-5.2",
+        displayName: "Kimi K2.7 Code",
+        api: "chat_completions",
+        baseUrl: "https://api.moonshot.cn/v1",
+        model: "kimi-k2.7-code",
+        authMode: "api_key",
+        apiKeyEnv: "MOONSHOT_API_KEY",
+      },
+    ],
+  });
+  await listen(router);
+  const baseUrl = serverUrl(router);
+
+  try {
+    const response = await fetch(`${baseUrl}/v1/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer router-token",
+      },
+      body: JSON.stringify({
+        model: "gpt-5.2",
+        input: "hello",
+      }),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 400);
+    assert.equal(body.error.code, "missing_provider_api_key");
+    assert.match(body.error.message, /Kimi K2\.7 Code/);
+    assert.match(body.error.message, /MOONSHOT_API_KEY/);
+  } finally {
+    await close(router);
+    if (originalMoonshot === undefined) {
+      delete process.env.MOONSHOT_API_KEY;
+    } else {
+      process.env.MOONSHOT_API_KEY = originalMoonshot;
+    }
+  }
+});
+
 test("server reloads router config file before authorizing requests", async () => {
   const upstream = http.createServer(async (req, res) => {
     assert.equal(req.url, "/v1/responses");

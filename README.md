@@ -285,10 +285,12 @@ If Codex shows `502 Bad Gateway`, open the CodexBridge log page first.
 - If there is no `access POST /v1/responses` line, Codex did not reach Router. Restart CodexBridge, start Router again, then restart Codex.
 - If `access POST /v1/responses` appears, the request reached Router. Check the following `req_... -> upstream` and `req_... !! upstream` lines for the real provider, model, proxy, status, and upstream message.
 - If every model fails with 502 and there is no access log, the usual cause is stale Codex config or a Windows proxy/VPN intercepting local traffic. Current releases write `http://localhost:15722/v1` automatically when Router starts.
+- If the log says `Missing API key ... Set MOONSHOT_API_KEY` or another `*_API_KEY`, save that provider key in the API Key page. The Codex slot name such as `gpt-5.2` may actually map to Kimi or another provider.
 
 - 如果没有 `access POST /v1/responses`，说明 Codex 没有打到 Router。请重启 CodexBridge，重新启动 Router，再重启 Codex。
 - 如果出现了 `access POST /v1/responses`，说明请求已经进 Router。继续看后面的 `req_... -> upstream` 和 `req_... !! upstream`，里面会显示真实 provider、真实模型、代理、状态码和上游错误。
 - 如果所有模型都 502 且没有 access 日志，常见原因是 Codex 配置仍是旧的，或 Windows 代理/VPN 接管了本地流量。当前版本在启动 Router 时会自动写入 `http://localhost:15722/v1`。
+- 如果日志写着 `Missing API key ... Set MOONSHOT_API_KEY` 或其他 `*_API_KEY`，请到“密钥”页保存对应服务商的 Key。`gpt-5.2` 这类 Codex 槽位名可能实际映射到 Kimi 或其他模型。
 
 ## Safety / 安全说明
 

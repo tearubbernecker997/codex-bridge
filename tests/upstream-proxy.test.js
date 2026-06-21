@@ -39,6 +39,84 @@ test("upstream requests use HTTPS proxy dispatcher when configured", async () =>
   }
 });
 
+test("upstream requests retry direct when proxy network fetch fails", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnv = snapshotProxyEnv();
+  const calls = [];
+
+  globalThis.fetch = async (_url, init) => {
+    calls.push(Boolean(init?.dispatcher));
+    if (init?.dispatcher) {
+      const error = new TypeError("fetch failed");
+      error.cause = { code: "UND_ERR_SOCKET" };
+      throw error;
+    }
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    clearProxyEnv();
+    process.env.HTTPS_PROXY = "http://127.0.0.1:7890";
+
+    const response = await callJsonUpstream(
+      "https://api.deepseek.com/v1/chat/completions",
+      {
+        id: "deepseek-v4-flash",
+        api: "chat_completions",
+        model: "deepseek-v4-flash",
+        apiKey: "test-key",
+      },
+      { model: "deepseek-v4-flash" },
+      {},
+    );
+
+    assert.deepEqual(calls, [true, false]);
+    assert.deepEqual(response, { ok: true });
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreProxyEnv(originalEnv);
+  }
+});
+
+test("upstream requests ignore unsupported SOCKS proxy URLs", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalEnv = snapshotProxyEnv();
+  let seenInit = null;
+
+  globalThis.fetch = async (_url, init) => {
+    seenInit = init;
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    clearProxyEnv();
+    process.env.HTTPS_PROXY = "socks5://127.0.0.1:10808";
+
+    await callJsonUpstream(
+      "https://api.deepseek.com/v1/chat/completions",
+      {
+        id: "deepseek-v4-flash",
+        api: "chat_completions",
+        model: "deepseek-v4-flash",
+        apiKey: "test-key",
+      },
+      { model: "deepseek-v4-flash" },
+      {},
+    );
+
+    assert.equal(Boolean(seenInit?.dispatcher), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreProxyEnv(originalEnv);
+  }
+});
+
 test("codex_openai responses use ChatGPT Codex backend and forward Codex headers", async () => {
   const originalBackend = process.env.CODEXBRIDGE_CHATGPT_CODEX_BASE_URL;
   let seenRequest = null;

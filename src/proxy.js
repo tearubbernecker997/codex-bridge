@@ -159,7 +159,7 @@ function proxyFromWindowsServer(proxyServer, protocol) {
     }
   }
   const protocolKey = protocol === "https:" ? "https" : "http";
-  return entries.get(protocolKey) || entries.get("http") || entries.get("socks") || "";
+  return entries.get(protocolKey) || entries.get("http") || "";
 }
 
 function normalizeProxyUrl(value) {
@@ -168,9 +168,18 @@ function normalizeProxyUrl(value) {
     return "";
   }
   if (/^[a-z][a-z0-9+.-]*:\/\//i.test(clean)) {
-    return clean;
+    return isSupportedProxyUrl(clean) ? clean : "";
   }
   return `http://${clean}`;
+}
+
+function isSupportedProxyUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function redactProxyUrl(value) {

@@ -78,9 +78,13 @@ export function authModeForRoute(route) {
 export function requireApiKey(route) {
   const key = apiKeyForRoute(route);
   if (!key) {
-    const hint = route.apiKeyEnv ? ` Set ${route.apiKeyEnv}.` : "";
-    const error = new Error(`Missing API key for ${route.id}.${hint}`);
-    error.statusCode = 500;
+    const label = [route.displayName, route.id].filter(Boolean).join(" / ");
+    const hint = route.apiKeyEnv
+      ? ` Set ${route.apiKeyEnv} in CodexBridge API Key settings.`
+      : " Configure an API key in CodexBridge API Key settings.";
+    const error = new Error(`Missing API key for ${label || route.id}.${hint}`);
+    error.statusCode = 400;
+    error.code = "missing_provider_api_key";
     throw error;
   }
   return key;
