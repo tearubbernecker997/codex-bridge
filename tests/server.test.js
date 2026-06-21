@@ -647,6 +647,75 @@ test("subscription scope errors explain that Codex login is not an API key", asy
   }
 });
 
+test("upstream HTTP errors include route and upstream message for diagnosis", async () => {
+  const upstream = http.createServer(async (_req, res) => {
+    res.writeHead(502, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: "Unknown error",
+          type: "server_error",
+          code: "bad_gateway",
+        },
+      }),
+    );
+  });
+
+  await listen(upstream);
+  const upstreamUrl = serverUrl(upstream);
+  const router = createRouterServer({
+    host: "127.0.0.1",
+    port: 0,
+    authToken: "router-token",
+    clientAuth: {
+      allowOpenAiBearer: true,
+    },
+    defaultModel: "gpt-5.5",
+    models: [
+      {
+        id: "gpt-5.5",
+        displayName: "GPT-5.5",
+        api: "responses",
+        baseUrl: `${upstreamUrl}/v1`,
+        model: "gpt-5.5",
+        authMode: "codex_openai",
+      },
+    ],
+  });
+  await listen(router);
+  const baseUrl = serverUrl(router);
+  const errors = [];
+  const originalError = console.error;
+  console.error = (message) => {
+    errors.push(String(message));
+  };
+
+  try {
+    const response = await fetch(`${baseUrl}/v1/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer codex-openai-token",
+      },
+      body: JSON.stringify({
+        model: "gpt-5.5",
+        input: "hello",
+      }),
+    });
+    const body = await response.json();
+    assert.equal(response.status, 502);
+    assert.match(body.error.message, /GPT-5\.5/);
+    assert.match(body.error.message, /HTTP 502/);
+    assert.match(body.error.message, /Unknown error/);
+    assert.equal(body.error.code, "upstream_error");
+    assert.match(errors.join("\n"), /body=.*Unknown error/);
+  } finally {
+    console.error = originalError;
+    await close(router);
+    await close(upstream);
+  }
+});
+
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 }

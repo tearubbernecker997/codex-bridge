@@ -31,11 +31,17 @@ const CODEX_PASSTHROUGH_HEADERS = [
 ];
 
 export class UpstreamHttpError extends Error {
-  constructor(statusCode, bodyText, upstreamUrl) {
+  constructor(statusCode, bodyText, upstreamUrl, route = {}) {
     super(`Upstream returned HTTP ${statusCode}`);
     this.statusCode = statusCode;
     this.bodyText = bodyText;
     this.upstreamUrl = upstreamUrl;
+    this.route = {
+      id: route.id || "",
+      displayName: route.displayName || "",
+      model: route.model || "",
+      api: route.api || "",
+    };
   }
 }
 
@@ -72,7 +78,7 @@ export async function proxyResponsesApi(requestBody, route, res, context = {}) {
 
   if (!upstream.ok) {
     const bodyText = await upstream.text();
-    throw new UpstreamHttpError(upstream.status, bodyText, upstreamUrl);
+    throw new UpstreamHttpError(upstream.status, bodyText, upstreamUrl, route);
   }
 
   res.writeHead(upstream.status, filteredHeaders(upstream.headers));
@@ -142,7 +148,7 @@ export async function callJsonUpstream(upstreamUrl, route, payload, context = {}
   }));
   const text = await upstream.text();
   if (!upstream.ok) {
-    throw new UpstreamHttpError(upstream.status, text, upstreamUrl);
+    throw new UpstreamHttpError(upstream.status, text, upstreamUrl, route);
   }
   const parsed = tryParseJson(text);
   if (!parsed) {
@@ -150,6 +156,7 @@ export async function callJsonUpstream(upstreamUrl, route, payload, context = {}
       502,
       `Upstream returned non-JSON body: ${text.slice(0, 500)}`,
       upstreamUrl,
+      route,
     );
   }
   return parsed;
@@ -173,7 +180,11 @@ export function sendUpstreamError(res, error) {
     jsonResponse(
       res,
       error.statusCode,
-      parsed || openAiError(error.bodyText || error.message, error.statusCode),
+      openAiError(
+        clientUpstreamErrorMessage(error, parsed),
+        error.statusCode,
+        "upstream_error",
+      ),
     );
     return;
   }
@@ -191,6 +202,31 @@ function isMissingResponsesWriteScope(parsedBody, rawBody) {
     .filter(Boolean)
     .join(" ");
   return /missing scopes?:\s*api\.responses\.write/i.test(message);
+}
+
+function clientUpstreamErrorMessage(error, parsedBody) {
+  const routeLabel = [error.route?.displayName, error.route?.id]
+    .filter(Boolean)
+    .join(" / ");
+  const model = error.route?.model ? ` upstream_model=${error.route.model}` : "";
+  const api = error.route?.api ? ` api=${error.route.api}` : "";
+  const upstreamMessage = upstreamBodyMessage(error.bodyText, parsedBody);
+  return (
+    `CodexBridge upstream error` +
+    (routeLabel ? ` from ${routeLabel}` : "") +
+    `${model}${api}: HTTP ${error.statusCode}` +
+    (upstreamMessage ? ` - ${upstreamMessage}` : "")
+  );
+}
+
+function upstreamBodyMessage(rawBody, parsedBody) {
+  const message =
+    parsedBody?.error?.message ||
+    parsedBody?.message ||
+    parsedBody?.error ||
+    rawBody ||
+    "";
+  return safeText(message, 800);
 }
 
 function upstreamHeaders(route, context = {}, options = {}) {
@@ -319,6 +355,13 @@ function logUsage(context, route, usage) {
   );
 }
 
+export function upstreamErrorLogPreview(error) {
+  if (!(error instanceof UpstreamHttpError) || !error.bodyText) {
+    return "";
+  }
+  return ` body=${safeText(error.bodyText, 500)}`;
+}
+
 function extractResponsesUsage(text) {
   const direct = extractUsageObject(tryParseJson(text));
   if (direct) {
@@ -404,6 +447,15 @@ function safeUrl(value) {
   } catch {
     return String(value);
   }
+}
+
+function safeText(value, limit = 240) {
+  return String(value || "")
+    .replaceAll("\r", " ")
+    .replaceAll("\n", " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
 }
 
 function shouldStripReasoningTags(route = {}) {

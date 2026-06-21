@@ -9,7 +9,11 @@ import {
   readJsonRequest,
 } from "./json.js";
 import { buildModelCatalog, openAiModelsList } from "./model-catalog.js";
-import { handleResponsesRequest, sendUpstreamError } from "./upstream.js";
+import {
+  handleResponsesRequest,
+  sendUpstreamError,
+  upstreamErrorLogPreview,
+} from "./upstream.js";
 
 export function createRouterServer(config = loadConfig()) {
   const history = new ResponseHistory();
@@ -165,7 +169,8 @@ function requestErrorLine(requestId, route, error) {
   return (
     `[${new Date().toISOString()}] ${requestId} !! upstream ` +
     `route=${route.id} status=${status} error=${safeLogValue(error?.message || String(error))}` +
-    (cause ? ` cause=${safeLogValue(cause)}` : "")
+    (cause ? ` cause=${safeLogValue(cause)}` : "") +
+    upstreamErrorLogPreview(error)
   );
 }
 
