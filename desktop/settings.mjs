@@ -286,7 +286,7 @@ export function buildCodexToml({
     "",
     "[model_providers.codex-bridge]",
     'name = "CodexBridge"',
-    `base_url = "http://127.0.0.1:${port}/v1"`,
+    `base_url = "http://localhost:${port}/v1"`,
     'wire_api = "responses"',
     "supports_websockets = false",
     providerAuth,

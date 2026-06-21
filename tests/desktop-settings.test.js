@@ -39,6 +39,7 @@ test("buildCodexToml uses local token in all-api mode", () => {
 
   assert.match(toml, /experimental_bearer_token = "sk-local-codex-router"/);
   assert.match(toml, /supports_websockets = false/);
+  assert.match(toml, /base_url = "http:\/\/localhost:15722\/v1"/);
   assert.doesNotMatch(toml, /requires_openai_auth/);
   assert.match(toml, /model_catalog_json = "F:\/game_code\/router\/model-catalog.json"/);
 });
@@ -52,6 +53,7 @@ test("buildCodexToml uses OpenAI auth in hybrid mode", () => {
 
   assert.match(toml, /requires_openai_auth = true/);
   assert.match(toml, /supports_websockets = false/);
+  assert.match(toml, /base_url = "http:\/\/localhost:15722\/v1"/);
   assert.doesNotMatch(toml, /experimental_bearer_token/);
 });
 

@@ -123,7 +123,7 @@ windows_wsl_setup_acknowledged = true
 
 [model_providers.codex-bridge]
 name = "CodexBridge"
-base_url = "http://127.0.0.1:15722/v1"
+base_url = "http://localhost:15722/v1"
 wire_api = "responses"
 experimental_bearer_token = "sk-local-codex-router"
 ```
@@ -143,7 +143,7 @@ windows_wsl_setup_acknowledged = true
 
 [model_providers.codex-bridge]
 name = "CodexBridge"
-base_url = "http://127.0.0.1:15722/v1"
+base_url = "http://localhost:15722/v1"
 wire_api = "responses"
 requires_openai_auth = true
 ```

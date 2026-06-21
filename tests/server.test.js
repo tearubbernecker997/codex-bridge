@@ -96,6 +96,39 @@ test("server exposes health, models, catalog, and converted responses", async ()
   }
 });
 
+test("server logs every incoming request before route handling", async () => {
+  const logs = [];
+  const originalLog = console.log;
+  console.log = (line) => logs.push(String(line));
+
+  const router = createRouterServer({
+    host: "127.0.0.1",
+    port: 0,
+    models: [
+      {
+        id: "deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        api: "chat_completions",
+        baseUrl: "http://127.0.0.1:1/v1",
+        model: "deepseek-v4-pro",
+        apiKey: "upstream-key",
+      },
+    ],
+  });
+
+  await listen(router);
+  const baseUrl = serverUrl(router);
+
+  try {
+    await fetchJson(`${baseUrl}/health`);
+  } finally {
+    console.log = originalLog;
+    await close(router);
+  }
+
+  assert.ok(logs.some((line) => /access GET \/health/.test(line)));
+});
+
 test("codex_openai routes forward incoming Codex bearer upstream", async () => {
   const upstream = http.createServer(async (req, res) => {
     assert.equal(req.url, "/v1/responses");

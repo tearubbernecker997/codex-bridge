@@ -21,6 +21,7 @@ export function createRouterServer(config = loadConfig()) {
   return http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url || "/", "http://127.0.0.1");
+      logAccess(req, url);
       const activeConfig = currentConfig(config);
 
       if (req.method === "OPTIONS") {
@@ -113,6 +114,14 @@ export function startServer(config = loadConfig()) {
     console.log(`models: ${config.models.map((model) => model.id).join(", ")}`);
   });
   return server;
+}
+
+function logAccess(req, url) {
+  console.log(
+    `[${new Date().toISOString()}] access ${req.method || "GET"} ${url.pathname} ` +
+      `host=${safeLogValue(req.headers.host || "-")} ` +
+      `ua=${safeLogValue(req.headers["user-agent"] || "-")}`,
+  );
 }
 
 function authorizeClient(req, config, route) {
