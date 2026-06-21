@@ -1,10 +1,15 @@
 # Windows Setup / Windows 配置指南
 
-This guide is for developers running from source. Normal users should download the Windows portable build instead:
+This guide is for developers running from source. Win users and Mac users should download a portable build instead:
 
 [CodexBridge-Windows-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-Windows-x64-Portable.zip)
 
-本指南适用于从源码运行的开发者。普通用户请下载 Windows 免安装包：
+Mac users:
+
+- Apple Silicon: [CodexBridge-macOS-arm64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-macOS-arm64-Portable.zip)
+- Intel Mac: [CodexBridge-macOS-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-macOS-x64-Portable.zip)
+
+本指南适用于从源码运行的开发者。Win 用户和 Mac 用户请下载免安装包：
 
 [CodexBridge-Windows-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-Windows-x64-Portable.zip)
 
@@ -90,9 +95,9 @@ This creates `model-catalog.json`.
 npm start
 ```
 
-The desktop app starts Router after refreshing the router config, Codex config, and model catalog. Normal users should use the desktop app instead of running these commands manually.
+The desktop app starts Router after refreshing the router config, Codex config, and model catalog. Win users and Mac users should use the desktop app instead of running these commands manually.
 
-桌面应用启动 Router 前会自动刷新路由配置、Codex 配置和模型目录。普通用户建议直接使用桌面应用，不要手动跑这些命令。
+桌面应用启动 Router 前会自动刷新路由配置、Codex 配置和模型目录。Win 用户和 Mac 用户建议直接使用桌面应用，不要手动跑这些命令。
 
 Default local endpoint:
 

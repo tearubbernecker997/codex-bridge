@@ -27,6 +27,20 @@ test("packaged desktop data defaults to stable user appdata directory", () => {
   assert.equal(rootDir, "C:\\Users\\Alice\\AppData\\Roaming\\CodexBridge");
 });
 
+test("packaged macOS desktop data defaults to Application Support", () => {
+  const rootDir = resolveDataRootDir({
+    appRootDir: "/Users/alice/dev/codex-bridge",
+    env: {
+      HOME: "/Users/alice",
+    },
+    execPath: "/Applications/CodexBridge.app/Contents/MacOS/CodexBridge",
+    isPackaged: true,
+    platform: "darwin",
+  });
+
+  assert.equal(rootDir, "/Users/alice/Library/Application Support/CodexBridge");
+});
+
 test("developer and explicit data directories still keep their current behavior", () => {
   assert.equal(
     resolveDataRootDir({

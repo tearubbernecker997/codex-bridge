@@ -2,9 +2,14 @@
 
 ## 中文
 
-普通用户不要从源码运行，也不要执行 `npm install`。正式交付方式是下载 GitHub Release 里的 Windows 免安装包：
+Win 用户不要从源码运行，也不要执行 `npm install`。正式交付方式是下载 GitHub Release 里的 Windows 免安装包：
 
 [CodexBridge-Windows-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-Windows-x64-Portable.zip)
+
+Mac 用户请下载 macOS 包：
+
+- Apple Silicon: [CodexBridge-macOS-arm64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-macOS-arm64-Portable.zip)
+- Intel Mac: [CodexBridge-macOS-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-macOS-x64-Portable.zip)
 
 历史版本在这里：
 
@@ -39,7 +44,7 @@ CodexBridge-Windows-x64-Portable-v0.1.10
 
 从旧版升级时，应用会尽量自动把旧解压目录里的 `CodexBridgeData` 复制到这个用户目录。复制只补缺失文件，不会覆盖你已经保存的新配置或新密钥。
 
-用户机器不需要安装 Node.js、npm 或 Electron。
+Win 用户机器不需要安装 Node.js、npm 或 Electron。
 
 源码里的 `Start-CodexBridge.cmd` 只适合开发者调试源码环境，不是用户交付方式。
 
@@ -56,9 +61,14 @@ GPT 订阅模型不需要在 CodexBridge 里填写 API Key。DeepSeek、Kimi、Q
 
 ## English
 
-Normal users should not run from source and should not run `npm install`. The customer-facing delivery is the Windows portable package from GitHub Releases:
+Win users should not run from source and should not run `npm install`. The customer-facing delivery is the Windows portable package from GitHub Releases:
 
 [CodexBridge-Windows-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-Windows-x64-Portable.zip)
+
+Mac users should download the macOS package:
+
+- Apple Silicon: [CodexBridge-macOS-arm64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-macOS-arm64-Portable.zip)
+- Intel Mac: [CodexBridge-macOS-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-macOS-x64-Portable.zip)
 
 Release history:
 
@@ -93,7 +103,7 @@ The portable build stores config, API keys, model selection, usage data, and log
 
 When upgrading from older portable builds, the app tries to import the old `CodexBridgeData` folder into this user directory. The migration only fills missing files and will not overwrite newly saved settings or API keys.
 
-Users do not need Node.js, npm, or Electron installed.
+Win users do not need Node.js, npm, or Electron installed.
 
 `Start-CodexBridge.cmd` is only a developer fallback for running from source. It is not the customer delivery path.
 

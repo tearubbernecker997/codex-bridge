@@ -10,11 +10,13 @@ CodexBridge 让 Codex 在一个本地 provider 和一个模型栏里同时使用
 
 ## Download / 下载
 
-Latest Windows portable build:
+Latest portable builds:
 
-最新版 Windows 免安装包：
+最新免安装包：
 
-[CodexBridge-Windows-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-Windows-x64-Portable.zip)
+- Win users / Win 用户: [CodexBridge-Windows-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-Windows-x64-Portable.zip)
+- Mac users / Mac 用户 Apple Silicon: [CodexBridge-macOS-arm64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-macOS-arm64-Portable.zip)
+- Mac users / Mac 用户 Intel: [CodexBridge-macOS-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-macOS-x64-Portable.zip)
 
 Release history:
 
@@ -22,9 +24,9 @@ Release history:
 
 [GitHub Releases](https://github.com/wangzhezbz/codex-bridge/releases)
 
-After downloading, extract the zip to a writable folder and run `CodexBridge.exe`.
+After downloading, extract the zip and run the app for your platform.
 
-下载后解压到可写目录，然后运行 `CodexBridge.exe`。
+下载后解压，并运行对应平台的应用。
 
 ## Status / 当前状态
 
@@ -60,7 +62,7 @@ CodexBridge acts as a local bridge:
 Codex Desktop -> CodexBridge -> GPT / DeepSeek / Kimi / other models
 ```
 
-Codex Desktop 可以连接自定义本地 provider，但普通用户很难把多家模型同时放进一个模型栏里稳定使用。
+Codex Desktop 可以连接自定义本地 provider，但很多 Win 用户和 Mac 用户很难把多家模型同时放进一个模型栏里稳定使用。
 
 CodexBridge 的角色就是本地桥接层：
 
@@ -132,27 +134,35 @@ Hybrid mode is implemented in the router core, but real ChatGPT subscription bil
 
 ## Quick Start / 快速开始
 
-Normal users should use the Windows portable build above. Node.js is only needed when developing from source.
+Win users and Mac users should use the portable builds above. Node.js is only needed when developing from source.
 
-普通用户请使用上面的 Windows 免安装包。只有从源码开发时才需要 Node.js。
+Win 用户和 Mac 用户请使用上面的免安装包。只有从源码开发时才需要 Node.js。
 
 ### Desktop manager / 桌面管理器
 
-On Windows, download the portable zip, extract it, and double-click:
+On Windows, download the Windows portable zip, extract it, and double-click:
 
-Windows 下下载免安装包，解压后双击：
+Windows 下下载 Windows 免安装包，解压后双击：
 
 ```text
 CodexBridge.exe
+```
+
+On macOS, download the matching macOS zip, extract it, and open:
+
+macOS 下下载对应的 macOS 压缩包，解压后打开：
+
+```text
+CodexBridge.app
 ```
 
 The app opens the CodexBridge window directly. In the window, choose a billing mode, select up to five models, fill API keys, update Codex config, and start the router.
 
 应用会直接打开 CodexBridge 窗口。你可以在窗口里选择计费模式、选择最多 5 个模型、填写 API Key、更新 Codex 配置并启动 Router。
 
-Starting Router from the desktop app also refreshes the Codex config and model catalog, so users do not need to click setup buttons in a strict order.
+Starting Router from the desktop app also refreshes the Codex config and model catalog, so Win users and Mac users do not need to click setup buttons in a strict order.
 
-从桌面应用启动 Router 时，会自动刷新 Codex 配置和模型目录，普通用户不需要严格按按钮顺序操作。
+从桌面应用启动 Router 时，会自动刷新 Codex 配置和模型目录，Win 用户和 Mac 用户不需要严格按按钮顺序操作。
 
 For development, you can also run:
 
@@ -224,6 +234,14 @@ Edit:
 %USERPROFILE%\.codex\config.toml
 ```
 
+On macOS:
+
+macOS 下：
+
+```text
+~/.codex/config.toml
+```
+
 Example:
 
 示例：
@@ -284,12 +302,12 @@ If Codex shows `502 Bad Gateway`, open the CodexBridge log page first.
 
 - If there is no `access POST /v1/responses` line, Codex did not reach Router. Restart CodexBridge, start Router again, then restart Codex.
 - If `access POST /v1/responses` appears, the request reached Router. Check the following `req_... -> upstream` and `req_... !! upstream` lines for the real provider, model, proxy, status, and upstream message.
-- If every model fails with 502 and there is no access log, the usual cause is stale Codex config or a Windows proxy/VPN intercepting local traffic. Current releases write `http://localhost:15722/v1` automatically when Router starts.
+- If every model fails with 502 and there is no access log, the usual cause is stale Codex config or a system proxy/VPN intercepting local traffic. Current releases write `http://localhost:15722/v1` automatically when Router starts.
 - If the log says `Missing API key ... Set MOONSHOT_API_KEY` or another `*_API_KEY`, save that provider key in the API Key page. The Codex slot name such as `gpt-5.2` may actually map to Kimi or another provider.
 
 - 如果没有 `access POST /v1/responses`，说明 Codex 没有打到 Router。请重启 CodexBridge，重新启动 Router，再重启 Codex。
 - 如果出现了 `access POST /v1/responses`，说明请求已经进 Router。继续看后面的 `req_... -> upstream` 和 `req_... !! upstream`，里面会显示真实 provider、真实模型、代理、状态码和上游错误。
-- 如果所有模型都 502 且没有 access 日志，常见原因是 Codex 配置仍是旧的，或 Windows 代理/VPN 接管了本地流量。当前版本在启动 Router 时会自动写入 `http://localhost:15722/v1`。
+- 如果所有模型都 502 且没有 access 日志，常见原因是 Codex 配置仍是旧的，或系统代理/VPN 接管了本地流量。当前版本在启动 Router 时会自动写入 `http://localhost:15722/v1`。
 - 如果日志写着 `Missing API key ... Set MOONSHOT_API_KEY` 或其他 `*_API_KEY`，请到“密钥”页保存对应服务商的 Key。`gpt-5.2` 这类 Codex 槽位名可能实际映射到 Kimi 或其他模型。
 
 ## Safety / 安全说明
@@ -297,12 +315,12 @@ If Codex shows `502 Bad Gateway`, open the CodexBridge log page first.
 - Do not commit `config/router.config.json`.
 - Do not commit `.env` files or API keys.
 - Keep API keys in environment variables for the headless preview.
-- The future desktop manager will store secrets locally with Windows-native protection.
+- The desktop manager stores secrets locally in the current user's CodexBridge data directory.
 
 - 不要提交 `config/router.config.json`。
 - 不要提交 `.env` 文件或 API Key。
 - 当前无界面预览版建议把 API Key 放在环境变量里。
-- 未来桌面管理器会用 Windows 本地安全能力保存密钥。
+- 桌面管理器会把密钥保存在当前用户的 CodexBridge 数据目录中。
 
 ## Roadmap / 路线图
 
@@ -312,7 +330,7 @@ If Codex shows `502 Bad Gateway`, open the CodexBridge log page first.
 - One-click Codex config apply and rollback.
 - Usage dashboard with real upstream model and token records.
 - Live logs and diagnostics export.
-- Windows installer with no manual Node.js setup.
+- Win and Mac portable packages with no manual Node.js setup.
 
 - 桌面应用和新手配置向导。
 - Provider 与 API Key 管理。
@@ -320,7 +338,7 @@ If Codex shows `502 Bad Gateway`, open the CodexBridge log page first.
 - 一键写入 Codex 配置和一键回滚。
 - 展示真实上游模型和 token 记录的用量面板。
 - 实时日志和诊断导出。
-- Windows 安装包，不再要求用户手动安装 Node.js。
+- Win 和 Mac 免安装包，不再要求用户手动安装 Node.js。
 
 ## License / 许可证
 

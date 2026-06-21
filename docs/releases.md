@@ -2,11 +2,16 @@
 
 ## Latest Download / 最新下载
 
-Windows portable package:
+Win users / Win 用户:
 
 Windows 免安装包：
 
 [CodexBridge-Windows-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-Windows-x64-Portable.zip)
+
+Mac users / Mac 用户:
+
+- Apple Silicon: [CodexBridge-macOS-arm64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-macOS-arm64-Portable.zip)
+- Intel Mac: [CodexBridge-macOS-x64-Portable.zip](https://github.com/wangzhezbz/codex-bridge/releases/latest/download/CodexBridge-macOS-x64-Portable.zip)
 
 Release history:
 
@@ -22,6 +27,8 @@ GitHub Release 附件使用稳定包名，教程里可以固定引用最新版�
 
 ```text
 CodexBridge-Windows-x64-Portable.zip
+CodexBridge-macOS-arm64-Portable.zip
+CodexBridge-macOS-x64-Portable.zip
 ```
 
 The extracted release folder includes the tag/version:
@@ -30,6 +37,8 @@ The extracted release folder includes the tag/version:
 
 ```text
 CodexBridge-Windows-x64-Portable-v0.1.10
+CodexBridge-macOS-arm64-Portable-v0.1.10
+CodexBridge-macOS-x64-Portable-v0.1.10
 ```
 
 ## Release Checklist / 发布检查
@@ -42,6 +51,8 @@ Before tagging a release:
 npm run check
 npm run package:win
 npm run package:win:smoke
+npm run package:mac
+npm run package:mac:smoke
 ```
 
 Then push a tag:
@@ -53,6 +64,6 @@ git tag v0.1.10
 git push origin v0.1.10
 ```
 
-GitHub Actions builds the Windows portable zip and attaches it to the release.
+GitHub Actions builds the Windows portable zip and both macOS portable zips, then attaches them to the same release.
 
 GitHub Actions 会构建 Windows 免安装包，并把 zip 附加到 release。

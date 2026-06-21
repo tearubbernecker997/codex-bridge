@@ -25,6 +25,15 @@ function resolveDataRootDir({
       return path.join(appData, APP_DIR_NAME);
     }
   }
+  if (platform === "darwin") {
+    const homeDir = env.HOME || env.USERPROFILE || os.homedir();
+    return path.posix.join(
+      String(homeDir).replaceAll("\\", "/"),
+      "Library",
+      "Application Support",
+      APP_DIR_NAME,
+    );
+  }
   return path.join(env.HOME || env.USERPROFILE || os.homedir(), ".codexbridge");
 }
 
