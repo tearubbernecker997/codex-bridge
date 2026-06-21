@@ -71,8 +71,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run checks
-        run: npm run check
+      - name: Run macOS packaging checks
+        run: |
+          node --check scripts/package-macos.mjs
+          node --check scripts/smoke-packaged-macos.mjs
+          node --check desktop/data-dir.cjs
 
       - name: Package macOS portable app
         env:
