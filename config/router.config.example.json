@@ -1,9 +1,10 @@
 {
+  "mode": "all_api",
   "host": "127.0.0.1",
   "port": 15722,
   "authToken": "sk-local-codex-router",
   "clientAuth": {
-    "allowOpenAiBearer": false
+    "allowOpenAiBearer": true
   },
   "defaultModel": "gpt-5.5",
   "catalog": {

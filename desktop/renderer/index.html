@@ -235,7 +235,7 @@
               <button class="ghost-button light" id="openCodexFolder">打开 Codex 目录</button>
             </div>
             <div class="notice">
-              混合模式会写入 <code>requires_openai_auth = true</code>，GPT 订阅模型使用 Codex 登录态；全部 API 模式会写入本地 Router token。
+              CodexBridge 使用 Codex 内置 OpenAI provider，并通过 <code>openai_base_url</code> 指向本地 Router；混合模式和全部 API 模式的上游认证由模型路由决定。
             </div>
             <div class="action-grid codex-actions">
               <button class="plain-button" id="generateCatalog">只生成模型目录</button>

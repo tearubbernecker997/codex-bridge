@@ -117,44 +117,19 @@ Edit:
 %USERPROFILE%\.codex\config.toml
 ```
 
-Example:
+Example. The desktop app writes this automatically:
 
-示例：
+示例。桌面应用会自动写入：
 
 ```toml
-model_provider = "codex-bridge"
+model_provider = "openai"
 model = "gpt-5.5"
 model_catalog_json = "F:/game_code/router/model-catalog.json"
 model_reasoning_effort = "medium"
 disable_response_storage = false
 network_access = "enabled"
+openai_base_url = "http://localhost:15722/v1"
 windows_wsl_setup_acknowledged = true
-
-[model_providers.codex-bridge]
-name = "CodexBridge"
-base_url = "http://localhost:15722/v1"
-wire_api = "responses"
-experimental_bearer_token = "sk-local-codex-router"
-```
-
-Hybrid mode example:
-
-混合模式示例：
-
-```toml
-model_provider = "codex-bridge"
-model = "gpt-5.5"
-model_catalog_json = "F:/game_code/router/model-catalog.json"
-model_reasoning_effort = "medium"
-disable_response_storage = false
-network_access = "enabled"
-windows_wsl_setup_acknowledged = true
-
-[model_providers.codex-bridge]
-name = "CodexBridge"
-base_url = "http://localhost:15722/v1"
-wire_api = "responses"
-requires_openai_auth = true
 ```
 
 Rules:
@@ -162,13 +137,13 @@ Rules:
 规则：
 
 - `model_catalog_json` must point to your real `model-catalog.json` path.
-- `experimental_bearer_token` must match `authToken` in `config/router.config.json`.
-- Hybrid mode uses `requires_openai_auth = true` instead of `experimental_bearer_token`.
+- `openai_base_url` must point to the local CodexBridge Router.
+- Do not add `[model_providers.codex-bridge]`, `experimental_bearer_token`, or `requires_openai_auth`.
 - Restart Codex Desktop after changing the catalog path.
 
 - `model_catalog_json` 必须指向你电脑里的真实 `model-catalog.json` 路径。
-- `experimental_bearer_token` 必须和 `config/router.config.json` 里的 `authToken` 一致。
-- 混合模式使用 `requires_openai_auth = true`，不要再写 `experimental_bearer_token`。
+- `openai_base_url` 必须指向本地 CodexBridge Router。
+- 不要再添加 `[model_providers.codex-bridge]`、`experimental_bearer_token` 或 `requires_openai_auth`。
 - 修改模型目录路径后，需要重启 Codex Desktop。
 
 ## 6. Verify / 验证

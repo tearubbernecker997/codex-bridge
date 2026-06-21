@@ -4,9 +4,9 @@ Local multi-model gateway and desktop manager for Codex.
 
 Codex 多模型本地网关与桌面管理器。
 
-CodexBridge lets Codex use GPT, DeepSeek, Kimi, and more OpenAI-compatible models from one local provider and one model picker.
+CodexBridge lets Codex use GPT, DeepSeek, Kimi, and more OpenAI-compatible models from one local router and one model picker.
 
-CodexBridge 让 Codex 在一个本地 provider 和一个模型栏里同时使用 GPT、DeepSeek、Kimi 以及更多 OpenAI-compatible 模型。
+CodexBridge 让 Codex 通过一个本地 Router 和一个模型栏同时使用 GPT、DeepSeek、Kimi 以及更多 OpenAI-compatible 模型。
 
 ## Download / 下载
 
@@ -54,7 +54,7 @@ Current capabilities:
 
 ## Why / 为什么做这个
 
-Codex Desktop can connect to a custom local provider, but users still need a practical way to mix multiple upstream providers in one model picker.
+Codex Desktop can point its built-in OpenAI provider at a local base URL, but users still need a practical way to mix multiple upstream providers in one model picker.
 
 CodexBridge acts as a local bridge:
 
@@ -62,7 +62,7 @@ CodexBridge acts as a local bridge:
 Codex Desktop -> CodexBridge -> GPT / DeepSeek / Kimi / other models
 ```
 
-Codex Desktop 可以连接自定义本地 provider，但很多 Win 用户和 Mac 用户很难把多家模型同时放进一个模型栏里稳定使用。
+Codex Desktop 可以把内置 OpenAI provider 指向本地 base URL，但很多 Win 用户和 Mac 用户很难把多家模型同时放进一个模型栏里稳定使用。
 
 CodexBridge 的角色就是本地桥接层：
 
@@ -90,23 +90,26 @@ Use:
 config/router.config.example.json
 ```
 
-Codex config uses a local router token:
+Codex config keeps the built-in OpenAI provider and points it at the local router:
 
-Codex 配置使用本地 router token：
+Codex 配置保留内置 OpenAI provider，并把 base URL 指到本地 Router：
 
 ```toml
-[model_providers.codex-bridge]
-name = "CodexBridge"
-base_url = "http://localhost:15722/v1"
-wire_api = "responses"
-experimental_bearer_token = "sk-local-codex-router"
+model_provider = "openai"
+model = "gpt-5.5"
+model_catalog_json = "C:/Users/you/AppData/Roaming/CodexBridge/model-catalog.json"
+model_reasoning_effort = "medium"
+disable_response_storage = false
+network_access = "enabled"
+openai_base_url = "http://localhost:15722/v1"
+windows_wsl_setup_acknowledged = true
 ```
 
 ### Hybrid / 混合模式
 
-GPT models can use the Codex/OpenAI authentication that Codex sends to the local provider, while DeepSeek, Kimi, and other third-party models keep using their own API keys.
+GPT models can use the Codex/OpenAI authentication that Codex sends to the local router, while DeepSeek, Kimi, and other third-party models keep using their own API keys.
 
-GPT 模型可以使用 Codex 传给本地 provider 的 Codex/OpenAI 认证；DeepSeek、Kimi 和其他第三方模型继续使用各自 API Key。
+GPT 模型可以使用 Codex 传给本地 Router 的 Codex/OpenAI 认证；DeepSeek、Kimi 和其他第三方模型继续使用各自 API Key。
 
 Use:
 
@@ -116,16 +119,19 @@ Use:
 config/router.config.hybrid.example.json
 ```
 
-Codex config uses OpenAI authentication:
+Codex config is the same as All API mode. The router decides whether a selected model uses the Codex/OpenAI bearer or that provider's API key:
 
-Codex 配置使用 OpenAI 认证：
+Codex 配置和全部 API 模式相同；具体上游认证由 Router 按模型决定：
 
 ```toml
-[model_providers.codex-bridge]
-name = "CodexBridge"
-base_url = "http://localhost:15722/v1"
-wire_api = "responses"
-requires_openai_auth = true
+model_provider = "openai"
+model = "gpt-5.5"
+model_catalog_json = "C:/Users/you/AppData/Roaming/CodexBridge/model-catalog.json"
+model_reasoning_effort = "medium"
+disable_response_storage = false
+network_access = "enabled"
+openai_base_url = "http://localhost:15722/v1"
+windows_wsl_setup_acknowledged = true
 ```
 
 Hybrid mode is implemented in the router core, but real ChatGPT subscription billing must be verified on a signed-in Codex account because unit tests cannot create a ChatGPT subscription bearer token.
@@ -247,24 +253,19 @@ Example:
 示例：
 
 ```toml
-model_provider = "codex-bridge"
+model_provider = "openai"
 model = "gpt-5.5"
-model_catalog_json = "C:/path/to/codex-bridge/model-catalog.json"
+model_catalog_json = "C:/Users/you/AppData/Roaming/CodexBridge/model-catalog.json"
 model_reasoning_effort = "medium"
 disable_response_storage = false
 network_access = "enabled"
+openai_base_url = "http://localhost:15722/v1"
 windows_wsl_setup_acknowledged = true
-
-[model_providers.codex-bridge]
-name = "CodexBridge"
-base_url = "http://localhost:15722/v1"
-wire_api = "responses"
-experimental_bearer_token = "sk-local-codex-router"
 ```
 
-`experimental_bearer_token` must match `authToken` in `config/router.config.json`.
+CodexBridge now uses `openai_base_url` instead of a custom `model_providers.codex-bridge` entry, so existing Codex Desktop conversations remain attached to the built-in `openai` provider.
 
-`experimental_bearer_token` 必须和 `config/router.config.json` 里的 `authToken` 一致。
+CodexBridge 现在使用 `openai_base_url` 指向本地 Router，不再写 `experimental_bearer_token` 或 `requires_openai_auth`。
 
 Restart Codex Desktop after changing `model_catalog_json`.
 
@@ -311,6 +312,8 @@ If Codex shows `502 Bad Gateway`, open the CodexBridge log page first.
 - 如果日志写着 `Missing API key ... Set MOONSHOT_API_KEY` 或其他 `*_API_KEY`，请到“密钥”页保存对应服务商的 Key。`gpt-5.2` 这类 Codex 槽位名可能实际映射到 Kimi 或其他模型。
 
 ## Recover Conversations / 找回历史对话
+
+Current releases keep `model_provider = "openai"` and use `openai_base_url`, so old Codex Desktop conversations should remain visible after clicking `更新 Codex 配置`, starting Router, and fully reopening Codex. The recover button is only a fallback for merging old desktop/history settings from backups; it cannot recreate conversations if Codex's local session database was deleted or a different `CODEX_HOME` is being used.
 
 If old Codex conversations disappear after enabling CodexBridge, open CodexBridge and click `找回历史对话`. The app merges history and desktop-related settings from the pre-Bridge backup while keeping the current CodexBridge model list, Router URL, and API settings. Then fully quit and reopen Codex.
 

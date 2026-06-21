@@ -26,6 +26,7 @@ const CODEX_BRIDGE_TOP_LEVEL_KEYS = new Set([
   "model_reasoning_effort",
   "disable_response_storage",
   "network_access",
+  "openai_base_url",
   "windows_wsl_setup_acknowledged",
 ]);
 
@@ -87,6 +88,9 @@ export function readRouterConfig(rootDir) {
 export function detectModeFromConfig(config) {
   if (!config) {
     return MODE_HYBRID;
+  }
+  if (config.mode === MODE_HYBRID || config.mode === MODE_ALL_API) {
+    return config.mode;
   }
   if (config?.clientAuth?.allowOpenAiBearer) {
     return MODE_HYBRID;
@@ -404,11 +408,12 @@ export function buildRouterConfigFromSelection(rootDir, mode = MODE_HYBRID) {
   );
 
   return {
+    mode,
     host: "127.0.0.1",
     port: 15722,
     authToken: "sk-local-codex-router",
     clientAuth: {
-      allowOpenAiBearer: mode === MODE_HYBRID,
+      allowOpenAiBearer: true,
     },
     defaultModel: routes[0].id,
     catalog: {
@@ -440,31 +445,20 @@ export function prepareRouterStartConfig({
 
 export function buildCodexToml({
   rootDir,
-  mode,
   port = 15722,
   model = "gpt-5.5",
 }) {
   const normalizedCatalogPath = toTomlPath(catalogPath(rootDir));
-  const providerAuth =
-    mode === MODE_HYBRID
-      ? 'requires_openai_auth = true'
-      : 'experimental_bearer_token = "sk-local-codex-router"';
 
   return [
-    'model_provider = "codex-bridge"',
+    'model_provider = "openai"',
     `model = "${model}"`,
     `model_catalog_json = "${normalizedCatalogPath}"`,
     'model_reasoning_effort = "medium"',
     "disable_response_storage = false",
     'network_access = "enabled"',
+    `openai_base_url = "http://localhost:${port}/v1"`,
     "windows_wsl_setup_acknowledged = true",
-    "",
-    "[model_providers.codex-bridge]",
-    'name = "CodexBridge"',
-    `base_url = "http://localhost:${port}/v1"`,
-    'wire_api = "responses"',
-    "supports_websockets = false",
-    providerAuth,
     "",
   ].join("\n");
 }
@@ -733,7 +727,8 @@ function preferredRestoreBackup(backups) {
 function isCodexBridgeToml(content) {
   return (
     /model_provider\s*=\s*"codex-bridge"/.test(content) ||
-    /\[model_providers\.codex-bridge]/.test(content)
+    /\[model_providers\.codex-bridge]/.test(content) ||
+    /openai_base_url\s*=\s*"http:\/\/(?:localhost|127\.0\.0\.1):\d+\/v1"/.test(content)
   );
 }
 

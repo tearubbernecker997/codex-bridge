@@ -31,13 +31,15 @@ import {
 
 test("detectModeFromConfig distinguishes all-api and hybrid", () => {
   assert.equal(detectModeFromConfig({}), MODE_ALL_API);
+  assert.equal(detectModeFromConfig({ mode: MODE_ALL_API, clientAuth: { allowOpenAiBearer: true } }), MODE_ALL_API);
+  assert.equal(detectModeFromConfig({ mode: MODE_HYBRID, clientAuth: { allowOpenAiBearer: false } }), MODE_HYBRID);
   assert.equal(
     detectModeFromConfig({ clientAuth: { allowOpenAiBearer: true } }),
     MODE_HYBRID,
   );
 });
 
-test("buildCodexToml uses local token in all-api mode", () => {
+test("buildCodexToml uses built-in OpenAI provider in all-api mode", () => {
   const rootDir = path.join(os.tmpdir(), "codex-bridge-router");
   const toml = buildCodexToml({
     rootDir,
@@ -46,24 +48,40 @@ test("buildCodexToml uses local token in all-api mode", () => {
   });
 
   const expectedCatalogPath = path.resolve(rootDir, "model-catalog.json").replaceAll("\\", "/");
-  assert.match(toml, /experimental_bearer_token = "sk-local-codex-router"/);
-  assert.match(toml, /supports_websockets = false/);
-  assert.match(toml, /base_url = "http:\/\/localhost:15722\/v1"/);
+  assert.match(toml, /model_provider = "openai"/);
+  assert.match(toml, /openai_base_url = "http:\/\/localhost:15722\/v1"/);
+  assert.doesNotMatch(toml, /experimental_bearer_token/);
   assert.doesNotMatch(toml, /requires_openai_auth/);
+  assert.doesNotMatch(toml, /supports_websockets/);
+  assert.doesNotMatch(toml, /\[model_providers\.codex-bridge]/);
   assert.match(toml, new RegExp(`model_catalog_json = "${escapeRegExp(expectedCatalogPath)}"`));
 });
 
-test("buildCodexToml uses OpenAI auth in hybrid mode", () => {
+test("buildCodexToml keeps the built-in OpenAI provider in hybrid mode", () => {
   const toml = buildCodexToml({
     rootDir: path.join(os.tmpdir(), "codex-bridge-router"),
     mode: MODE_HYBRID,
     port: 15722,
   });
 
-  assert.match(toml, /requires_openai_auth = true/);
-  assert.match(toml, /supports_websockets = false/);
-  assert.match(toml, /base_url = "http:\/\/localhost:15722\/v1"/);
+  assert.match(toml, /model_provider = "openai"/);
+  assert.match(toml, /openai_base_url = "http:\/\/localhost:15722\/v1"/);
+  assert.doesNotMatch(toml, /requires_openai_auth/);
+  assert.doesNotMatch(toml, /supports_websockets/);
+  assert.doesNotMatch(toml, /\[model_providers\.codex-bridge]/);
   assert.doesNotMatch(toml, /experimental_bearer_token/);
+});
+
+test("buildCodexToml keeps Codex desktop history on the built-in provider", () => {
+  const toml = buildCodexToml({
+    rootDir: path.join(os.tmpdir(), "codex-bridge-router"),
+    mode: MODE_HYBRID,
+    port: 15722,
+  });
+
+  assert.match(toml, /model_provider = "openai"/);
+  assert.doesNotMatch(toml, /model_provider = "codex-bridge"/);
+  assert.doesNotMatch(toml, /\[model_providers\.codex-bridge]/);
 });
 
 test("buildCodexToml keeps Codex response storage enabled for history", () => {
@@ -369,6 +387,8 @@ test("buildRouterConfigFromSelection maps selected models into five Codex slots"
 
   const config = buildRouterConfigFromSelection(rootDir, MODE_HYBRID);
 
+  assert.equal(config.mode, MODE_HYBRID);
+  assert.equal(config.clientAuth.allowOpenAiBearer, true);
   assert.equal(config.models.length, 5);
   assert.deepEqual(config.models.map((model) => model.id), [
     "gpt-5.5",
@@ -431,6 +451,8 @@ test("all-api defaults use public API presets only", () => {
   const rootDir = makeTempProject();
   const config = buildRouterConfigFromSelection(rootDir, MODE_ALL_API);
 
+  assert.equal(config.mode, MODE_ALL_API);
+  assert.equal(config.clientAuth.allowOpenAiBearer, true);
   assert.equal(config.models.length, 5);
   assert.equal(config.models.some((model) => model.baseUrl.includes("fenno.ai")), false);
   assert.equal(config.models.some((model) => model.apiKeyEnv === "FENNO_API_KEY"), false);
@@ -577,7 +599,9 @@ test("applyCodexConfig writes config and creates backup", () => {
   });
 
   const written = fs.readFileSync(target, "utf8");
-  assert.match(written, /requires_openai_auth = true/);
+  assert.match(written, /model_provider = "openai"/);
+  assert.match(written, /openai_base_url = "http:\/\/localhost:15722\/v1"/);
+  assert.doesNotMatch(written, /\[model_providers\.codex-bridge]/);
   assert.equal(result.target, target);
   assert.equal(fs.existsSync(result.backup), true);
 });
@@ -610,8 +634,9 @@ test("applyCodexConfig preserves existing Codex user settings while adding Codex
   applyCodexConfig({ rootDir, mode: MODE_HYBRID, homeDir });
   const written = fs.readFileSync(target, "utf8");
 
-  assert.match(written, /model_provider = "codex-bridge"/);
-  assert.match(written, /\[model_providers\.codex-bridge]/);
+  assert.match(written, /model_provider = "openai"/);
+  assert.match(written, /openai_base_url = "http:\/\/localhost:15722\/v1"/);
+  assert.doesNotMatch(written, /\[model_providers\.codex-bridge]/);
   assert.match(written, /sandbox_mode = "danger-full-access"/);
   assert.match(written, /\[history]\s+persistence = "save-all"/);
   assert.match(written, /\[desktop]\s+appearanceTheme = "dark"/);
@@ -661,7 +686,9 @@ test("prepareRouterStartConfig refreshes stale Codex local endpoint before route
 
   const written = fs.readFileSync(target, "utf8");
   assert.equal(result.config.defaultModel, "gpt-5.5");
-  assert.match(written, /base_url = "http:\/\/localhost:15722\/v1"/);
+  assert.match(written, /model_provider = "openai"/);
+  assert.match(written, /openai_base_url = "http:\/\/localhost:15722\/v1"/);
+  assert.doesNotMatch(written, /\[model_providers\.codex-bridge]/);
   assert.doesNotMatch(written, /http:\/\/127\.0\.0\.1:15722\/v1/);
 });
 
@@ -707,12 +734,17 @@ test("restoreCodexConfig falls back to the oldest backup when all backups are Co
   const codexDir = path.join(homeDir, ".codex");
   fs.mkdirSync(codexDir, { recursive: true });
   const target = path.join(codexDir, "config.toml");
-  fs.writeFileSync(target, buildCodexToml({ rootDir, mode: MODE_HYBRID }), "utf8");
+  const bridgeConfig = buildCodexToml({ rootDir, mode: MODE_HYBRID });
+  fs.writeFileSync(target, bridgeConfig, "utf8");
+  fs.writeFileSync(
+    `${target}.codexbridge.2026-06-21-120000000.bak`,
+    bridgeConfig,
+    "utf8",
+  );
 
-  applyCodexConfig({ rootDir, mode: MODE_ALL_API, homeDir });
   restoreCodexConfig({ homeDir });
 
-  assert.match(fs.readFileSync(target, "utf8"), /model_provider = "codex-bridge"/);
+  assert.match(fs.readFileSync(target, "utf8"), /model_provider = "openai"/);
 });
 
 test("restoreCodexConfig explains when no backup exists", () => {
@@ -739,7 +771,8 @@ test("recoverCodexHistoryAccess keeps CodexBridge config and only enables histor
 
   assert.equal(recovered.action, "recover_history_access");
   assert.equal(recovered.target, target);
-  assert.match(written, /model_provider = "codex-bridge"/);
+  assert.match(written, /model_provider = "openai"/);
+  assert.match(written, /openai_base_url = "http:\/\/localhost:15722\/v1"/);
   assert.match(written, /disable_response_storage = false/);
   assert.doesNotMatch(written, /original-history-view/);
   assert.match(recovered.message, /历史对话/);
@@ -776,8 +809,9 @@ test("recoverCodexHistoryAccess merges the pre-Bridge backup back into current C
 
   assert.ok(applied.backup);
   assert.equal(recovered.action, "recover_history_access");
-  assert.match(written, /model_provider = "codex-bridge"/);
-  assert.match(written, /\[model_providers\.codex-bridge]/);
+  assert.match(written, /model_provider = "openai"/);
+  assert.match(written, /openai_base_url = "http:\/\/localhost:15722\/v1"/);
+  assert.doesNotMatch(written, /\[model_providers\.codex-bridge]/);
   assert.match(written, /\[history]\s+persistence = "save-all"/);
   assert.match(written, /\[desktop]\s+appearanceTheme = "dark"/);
   assert.doesNotMatch(written, /disable_response_storage = true/);
