@@ -14,6 +14,16 @@ test("public docs use the stable latest Windows download link", () => {
   }
 });
 
+test("portable docs explain stable user data storage", () => {
+  const text = fs.readFileSync(
+    path.join(process.cwd(), "docs", "windows-portable.md"),
+    "utf8",
+  );
+
+  assert.match(text, /%APPDATA%\\CodexBridge/);
+  assert.match(text, /will not overwrite newly saved settings or API keys/);
+});
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

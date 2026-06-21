@@ -2,11 +2,29 @@ const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+  legacyPortableDataCandidates,
+  migrateLegacyPortableData,
+  resolveDataRootDir,
+} = require("./data-dir.cjs");
 
 const appRootDir = path.resolve(__dirname, "..");
-const dataRootDir = process.env.CODEXBRIDGE_DATA_DIR || (app.isPackaged
-  ? path.join(path.dirname(process.execPath), "CodexBridgeData")
-  : appRootDir);
+const dataRootDir = resolveDataRootDir({
+  appRootDir,
+  env: process.env,
+  execPath: process.execPath,
+  isPackaged: app.isPackaged,
+  platform: process.platform,
+});
+const legacyDataMigration = app.isPackaged && !process.env.CODEXBRIDGE_DATA_DIR
+  ? migrateLegacyPortableData({
+      targetDir: dataRootDir,
+      legacyDirs: legacyPortableDataCandidates({
+        execPath: process.execPath,
+        targetDir: dataRootDir,
+      }),
+    })
+  : { copiedFiles: 0, skippedFiles: 0, sourceDirs: [], messages: [] };
 const runtimeLogPath = path.join(dataRootDir, "logs", "desktop-runtime.log");
 const usageEventsPath = path.join(dataRootDir, "logs", "usage.local.json");
 let settingsPromise;
@@ -15,6 +33,10 @@ let routerProcess = null;
 let logLines = [];
 let smokeErrors = [];
 let usageStore = null;
+
+for (const message of legacyDataMigration.messages) {
+  appendRuntimeLog(message);
+}
 
 import("./usage.mjs")
   .then(({ createUsageStore }) => {
@@ -138,6 +160,7 @@ ipcMain.handle("state:get", async () => {
     secretStatus: settings.secretStatus(dataRootDir),
     usageEvents: usageStore?.events() || [],
     usageSummary: usageStore?.summary() || emptyUsageSummary(),
+    legacyDataMigration,
     logs: logLines,
   };
 });
@@ -473,6 +496,7 @@ async function getStatePayload(settings) {
     secretStatus: settings.secretStatus(dataRootDir),
     usageEvents: usageStore?.events() || [],
     usageSummary: usageStore?.summary() || emptyUsageSummary(),
+    legacyDataMigration,
     logs: logLines,
   };
 }

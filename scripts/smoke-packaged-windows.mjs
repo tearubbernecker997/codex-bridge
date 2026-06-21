@@ -53,8 +53,10 @@ function newestPackagedAppDir() {
 }
 
 async function smokeDesktop(exePath) {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "codexbridge-desktop-data-"));
   const result = await runProcess(exePath, [], {
     CODEXBRIDGE_DESKTOP_SMOKE: "1",
+    CODEXBRIDGE_DATA_DIR: dataDir,
   }, 30000);
   assert.equal(
     result.code,

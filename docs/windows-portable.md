@@ -21,7 +21,7 @@ CodexBridge-Windows-x64-Portable.zip
 压缩包内的 release 目录会带版本号，例如：
 
 ```text
-CodexBridge-Windows-x64-Portable-v0.1.3
+CodexBridge-Windows-x64-Portable-v0.1.4
 ```
 
 ### 用户安装
@@ -31,11 +31,13 @@ CodexBridge-Windows-x64-Portable-v0.1.3
 3. 打开解压后的 `CodexBridge-win32-x64` 文件夹。
 4. 双击 `CodexBridge.exe`。
 
-便携版会把配置、密钥和日志写到同级目录：
+便携版会把配置、密钥、模型选择、统计和日志写到用户目录：
 
 ```text
-CodexBridgeData
+%APPDATA%\CodexBridge
 ```
+
+从旧版升级时，应用会尽量自动把旧解压目录里的 `CodexBridgeData` 复制到这个用户目录。复制只补缺失文件，不会覆盖你已经保存的新配置或新密钥。
 
 用户机器不需要安装 Node.js、npm 或 Electron。
 
@@ -73,7 +75,7 @@ CodexBridge-Windows-x64-Portable.zip
 The extracted release folder includes the version, for example:
 
 ```text
-CodexBridge-Windows-x64-Portable-v0.1.3
+CodexBridge-Windows-x64-Portable-v0.1.4
 ```
 
 ### Installation
@@ -83,11 +85,13 @@ CodexBridge-Windows-x64-Portable-v0.1.3
 3. Open the extracted `CodexBridge-win32-x64` folder.
 4. Run `CodexBridge.exe`.
 
-The portable build stores config, API keys, and logs in the sibling folder:
+The portable build stores config, API keys, model selection, usage data, and logs in the user profile:
 
 ```text
-CodexBridgeData
+%APPDATA%\CodexBridge
 ```
+
+When upgrading from older portable builds, the app tries to import the old `CodexBridgeData` folder into this user directory. The migration only fills missing files and will not overwrite newly saved settings or API keys.
 
 Users do not need Node.js, npm, or Electron installed.
 
