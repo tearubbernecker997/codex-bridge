@@ -700,6 +700,36 @@ test("applyCodexConfig preserves existing Codex user settings while adding Codex
   assert.match(written, /\[projects\.'f:\\game_code\\demo']\s+trust_level = "trusted"/);
 });
 
+test("applyCodexConfig preserves the current Codex model selection", () => {
+  const rootDir = makeTempProject();
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-home-"));
+  const codexDir = path.join(homeDir, ".codex");
+  fs.mkdirSync(codexDir, { recursive: true });
+  const target = path.join(codexDir, "config.toml");
+  fs.writeFileSync(
+    target,
+    [
+      'model_provider = "openai"',
+      'model = "gpt-5.2"',
+      'model_reasoning_effort = "high"',
+      "",
+      "[history]",
+      'persistence = "save-all"',
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+
+  applyCodexConfig({ rootDir, mode: MODE_HYBRID, homeDir });
+  const written = fs.readFileSync(target, "utf8");
+
+  assert.match(written, /model_provider = "openai"/);
+  assert.match(written, /model = "gpt-5\.2"/);
+  assert.match(written, /model_reasoning_effort = "high"/);
+  assert.match(written, /openai_base_url = "http:\/\/localhost:15722\/v1"/);
+  assert.match(written, /\[history]\s+persistence = "save-all"/);
+});
+
 test("applyCodexConfig skips backup when Codex config is already current", () => {
   const rootDir = makeTempProject();
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-home-"));

@@ -33,6 +33,9 @@ const CODEX_BRIDGE_TOP_LEVEL_KEYS = new Set([
   "windows_wsl_setup_acknowledged",
 ]);
 
+const CODEX_MODEL_SLOT_IDS = new Set(CODEX_MODEL_SLOTS.map((slot) => slot.id));
+const CODEX_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh"]);
+
 const LEGACY_CODEX_BRIDGE_THREAD_SOURCES = [
   "codex-bridge",
   "codexbridge",
@@ -739,6 +742,7 @@ export function buildCodexToml({
   rootDir,
   port = 15722,
   model = "gpt-5.5",
+  reasoningEffort = "medium",
 }) {
   const normalizedCatalogPath = toTomlPath(catalogPath(rootDir));
 
@@ -746,7 +750,7 @@ export function buildCodexToml({
     'model_provider = "openai"',
     `model = "${model}"`,
     `model_catalog_json = "${normalizedCatalogPath}"`,
-    'model_reasoning_effort = "medium"',
+    `model_reasoning_effort = "${reasoningEffort}"`,
     "disable_response_storage = false",
     'network_access = "enabled"',
     `openai_base_url = "http://localhost:${port}/v1"`,
@@ -764,8 +768,9 @@ export function applyCodexConfig({
   const target = codexConfigPath(homeDir);
   const targetDir = path.dirname(target);
   fs.mkdirSync(targetDir, { recursive: true });
-  const bridgeContent = buildCodexToml({ rootDir, mode, port });
   const existingContent = fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "";
+  const currentSettings = currentCodexModelSettings(existingContent);
+  const bridgeContent = buildCodexToml({ rootDir, mode, port, ...currentSettings });
   const content = mergeCodexBridgeConfig(existingContent, bridgeContent);
   const historySync = syncCodexBridgeConversationProviders({ homeDir });
 
@@ -1614,6 +1619,36 @@ function mergeCodexBridgeConfig(baseContent, bridgeContent) {
     tables.join("\n"),
   ].filter((section) => section.trim());
   return `${sections.join("\n\n")}\n`;
+}
+
+function currentCodexModelSettings(content) {
+  const settings = {};
+  const model = readTopLevelTomlString(content, "model");
+  if (CODEX_MODEL_SLOT_IDS.has(model)) {
+    settings.model = model;
+  }
+
+  const reasoningEffort = readTopLevelTomlString(content, "model_reasoning_effort");
+  if (CODEX_REASONING_EFFORTS.has(reasoningEffort)) {
+    settings.reasoningEffort = reasoningEffort;
+  }
+
+  return settings;
+}
+
+function readTopLevelTomlString(content, key) {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^\\s*${escapedKey}\\s*=\\s*"([^"\\\\]*(?:\\\\.[^"\\\\]*)*)"`);
+  for (const line of String(content || "").split(/\r?\n/)) {
+    if (isTomlTableHeader(line)) {
+      break;
+    }
+    const match = line.match(pattern);
+    if (match) {
+      return match[1].replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    }
+  }
+  return null;
 }
 
 function stripCodexBridgeConfig(content) {

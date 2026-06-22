@@ -8,17 +8,6 @@ const REASONING_LEVELS = [
   { effort: "xhigh", description: "Extra high reasoning depth for complex tasks" },
 ];
 
-const DEEPSEEK_REASONING_LEVELS = [
-  { effort: "none", description: "Disable reasoning" },
-  { effort: "high", description: "Use stronger reasoning" },
-  { effort: "max", description: "Use maximum reasoning" },
-];
-
-const BINARY_REASONING_LEVELS = [
-  { effort: "none", description: "Disable reasoning" },
-  { effort: "max", description: "Use maximum reasoning" },
-];
-
 export function buildModelCatalog(config) {
   const defaults = config.catalog || {};
   const entries = config.models
@@ -109,18 +98,5 @@ export function openAiModelsList(config) {
 }
 
 function reasoningSpecForModel(model) {
-  const upstreamModel = String(model.model || model.id).toLowerCase();
-  if (upstreamModel.includes("deepseek")) {
-    return { defaultLevel: "high", levels: DEEPSEEK_REASONING_LEVELS };
-  }
-  if (
-    upstreamModel.includes("kimi") ||
-    upstreamModel.includes("moonshot") ||
-    upstreamModel.includes("qwen") ||
-    upstreamModel.includes("glm") ||
-    upstreamModel.includes("mimo")
-  ) {
-    return { defaultLevel: "max", levels: BINARY_REASONING_LEVELS };
-  }
   return { defaultLevel: "medium", levels: REASONING_LEVELS };
 }

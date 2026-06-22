@@ -37,12 +37,12 @@ test("model catalog keeps Codex tool capability fields", () => {
   assert.equal(catalog.models[0].supports_parallel_tool_calls, true);
   assert.deepEqual(
     catalog.models[0].supported_reasoning_levels.map((level) => level.effort),
-    ["none", "high", "max"],
+    ["low", "medium", "high", "xhigh"],
   );
-  assert.equal(catalog.models[0].default_reasoning_level, "high");
+  assert.equal(catalog.models[0].default_reasoning_level, "medium");
 });
 
-test("kimi catalog uses binary reasoning levels", () => {
+test("chat catalog accepts standard Codex reasoning levels for model switching", () => {
   const catalog = buildModelCatalog({
     models: [
       {
@@ -57,9 +57,9 @@ test("kimi catalog uses binary reasoning levels", () => {
 
   assert.deepEqual(
     catalog.models[0].supported_reasoning_levels.map((level) => level.effort),
-    ["none", "max"],
+    ["low", "medium", "high", "xhigh"],
   );
-  assert.equal(catalog.models[0].default_reasoning_level, "max");
+  assert.equal(catalog.models[0].default_reasoning_level, "medium");
 });
 
 test("responses passthrough models expose reasoning levels", () => {
