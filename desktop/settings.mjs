@@ -529,6 +529,7 @@ export function syncCodexBridgeConversationProviders({ homeDir = os.homedir() } 
     skipped: false,
     reason: "",
     totalUpdatedThreads: 0,
+    totalImportedThreads: 0,
     databases: [],
   };
 
@@ -569,11 +570,13 @@ export function syncCodexBridgeConversationProviders({ homeDir = os.homedir() } 
       skipped: false,
       reason: "",
       updatedThreads: 0,
+      importedThreads: 0,
       backup: null,
     };
     try {
+      const missingBackupThreads = countMissingThreadsFromHistoryBackups(DatabaseSync, dbPath);
       const legacyThreads = countLegacyCodexBridgeThreads(DatabaseSync, dbPath);
-      if (legacyThreads < 1) {
+      if (legacyThreads < 1 && missingBackupThreads < 1) {
         item.skipped = true;
         item.reason = "no_legacy_threads";
         result.databases.push(item);
@@ -581,7 +584,9 @@ export function syncCodexBridgeConversationProviders({ homeDir = os.homedir() } 
       }
 
       item.backup = backupCodexStateDatabase(dbPath);
+      item.importedThreads = importMissingThreadsFromHistoryBackups(DatabaseSync, dbPath);
       item.updatedThreads = updateLegacyCodexBridgeThreads(DatabaseSync, dbPath);
+      result.totalImportedThreads += item.importedThreads;
       result.totalUpdatedThreads += item.updatedThreads;
       result.databases.push(item);
     } catch (error) {
@@ -593,6 +598,209 @@ export function syncCodexBridgeConversationProviders({ homeDir = os.homedir() } 
   }
 
   return result;
+}
+
+function countMissingThreadsFromHistoryBackups(DatabaseSync, dbPath) {
+  const backupPaths = codexStateHistoryBackupPaths(dbPath);
+  if (!backupPaths.length) {
+    return 0;
+  }
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA busy_timeout = 1500");
+    if (!hasTable(db, "threads")) {
+      return 0;
+    }
+    let missing = 0;
+    backupPaths.forEach((backupPath, index) => {
+      const alias = `backup_${index}`;
+      db.exec(`ATTACH DATABASE ${sqlString(backupPath)} AS ${quoteIdentifier(alias)}`);
+      try {
+        if (!hasAttachedTable(db, alias, "threads")) {
+          return;
+        }
+        missing += Number(
+          db
+            .prepare(
+              `SELECT COUNT(*) AS count FROM ${quoteIdentifier(alias)}.threads AS b ` +
+                "WHERE b.id IS NOT NULL " +
+                "AND NOT EXISTS (SELECT 1 FROM main.threads AS t WHERE t.id = b.id)",
+            )
+            .get().count,
+        );
+      } finally {
+        db.exec(`DETACH DATABASE ${quoteIdentifier(alias)}`);
+      }
+    });
+    return missing;
+  } finally {
+    db.close();
+  }
+}
+
+function importMissingThreadsFromHistoryBackups(DatabaseSync, dbPath) {
+  const backupPaths = codexStateHistoryBackupPaths(dbPath);
+  if (!backupPaths.length) {
+    return 0;
+  }
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA busy_timeout = 1500");
+    if (!hasTable(db, "threads")) {
+      return 0;
+    }
+    const mainThreadColumns = tableColumns(db, "threads");
+    let importedThreads = 0;
+    backupPaths.forEach((backupPath, index) => {
+      const alias = `backup_${index}`;
+      db.exec(`ATTACH DATABASE ${sqlString(backupPath)} AS ${quoteIdentifier(alias)}`);
+      try {
+        if (!hasAttachedTable(db, alias, "threads")) {
+          return;
+        }
+        const sourceThreadColumns = attachedTableColumns(db, alias, "threads");
+        const threadColumns = sharedColumns(mainThreadColumns, sourceThreadColumns);
+        if (!threadColumns.includes("id")) {
+          return;
+        }
+        const importedIds = db
+          .prepare(
+            `SELECT b.id FROM ${quoteIdentifier(alias)}.threads AS b ` +
+              "WHERE b.id IS NOT NULL " +
+              "AND NOT EXISTS (SELECT 1 FROM main.threads AS t WHERE t.id = b.id)",
+          )
+          .all()
+          .map((row) => row.id);
+        if (!importedIds.length) {
+          return;
+        }
+
+        const columnList = threadColumns.map(quoteIdentifier).join(", ");
+        const sourceList = threadColumns
+          .map((column) => `b.${quoteIdentifier(column)}`)
+          .join(", ");
+        const insertResult = db
+          .prepare(
+            `INSERT INTO main.threads (${columnList}) ` +
+              `SELECT ${sourceList} FROM ${quoteIdentifier(alias)}.threads AS b ` +
+              "WHERE b.id IS NOT NULL " +
+              "AND NOT EXISTS (SELECT 1 FROM main.threads AS t WHERE t.id = b.id)",
+          )
+          .run();
+        importedThreads += Number(insertResult.changes || 0);
+        copyImportedThreadSideTables(db, alias, importedIds);
+      } finally {
+        db.exec(`DETACH DATABASE ${quoteIdentifier(alias)}`);
+      }
+    });
+    return importedThreads;
+  } finally {
+    db.close();
+  }
+}
+
+function copyImportedThreadSideTables(db, alias, threadIds) {
+  const idSet = new Set(threadIds.filter(Boolean));
+  if (!idSet.size) {
+    return;
+  }
+  copyRowsForImportedThreads(db, alias, "thread_dynamic_tools", ["thread_id"], idSet);
+  copyRowsForImportedThreads(db, alias, "thread_spawn_edges", ["parent_thread_id", "child_thread_id"], idSet);
+}
+
+function copyRowsForImportedThreads(db, alias, tableName, threadColumns, threadIds) {
+  if (!hasTable(db, tableName) || !hasAttachedTable(db, alias, tableName)) {
+    return;
+  }
+  const mainColumns = tableColumns(db, tableName);
+  const sourceColumns = attachedTableColumns(db, alias, tableName);
+  const availableThreadColumns = threadColumns.filter((column) => (
+    mainColumns.includes(column) &&
+    sourceColumns.includes(column)
+  ));
+  if (!availableThreadColumns.length) {
+    return;
+  }
+  const columns = sharedColumns(mainColumns, sourceColumns);
+  const columnList = columns.map(quoteIdentifier).join(", ");
+  const sourceList = columns.map((column) => `b.${quoteIdentifier(column)}`).join(", ");
+  const ids = [...threadIds].map(sqlString).join(", ");
+  const predicates = availableThreadColumns
+    .map((column) => `b.${quoteIdentifier(column)} IN (${ids})`)
+    .join(" OR ");
+  db
+    .prepare(
+      `INSERT INTO main.${quoteIdentifier(tableName)} (${columnList}) ` +
+        `SELECT ${sourceList} FROM ${quoteIdentifier(alias)}.${quoteIdentifier(tableName)} AS b ` +
+        `WHERE ${predicates}`,
+    )
+    .run();
+}
+
+function codexStateHistoryBackupPaths(dbPath) {
+  const dir = path.dirname(dbPath);
+  const baseName = path.basename(dbPath);
+  if (!fs.existsSync(dir)) {
+    return [];
+  }
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => (
+      name.startsWith(`${baseName}.codexbridge-history.`) &&
+      name.endsWith(".bak") &&
+      !name.endsWith(".bak-wal") &&
+      !name.endsWith(".bak-shm")
+    ))
+    .sort()
+    .map((name) => path.join(dir, name));
+}
+
+function hasTable(db, tableName) {
+  return Boolean(
+    db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tableName),
+  );
+}
+
+function hasAttachedTable(db, alias, tableName) {
+  return Boolean(
+    db
+      .prepare(
+        `SELECT name FROM ${quoteIdentifier(alias)}.sqlite_master ` +
+          "WHERE type = 'table' AND name = ?",
+      )
+      .get(tableName),
+  );
+}
+
+function tableColumns(db, tableName) {
+  return db
+    .prepare(`PRAGMA table_info(${quoteIdentifier(tableName)})`)
+    .all()
+    .map((column) => column.name);
+}
+
+function attachedTableColumns(db, alias, tableName) {
+  return db
+    .prepare(`PRAGMA ${quoteIdentifier(alias)}.table_info(${quoteIdentifier(tableName)})`)
+    .all()
+    .map((column) => column.name);
+}
+
+function sharedColumns(left, right) {
+  const rightSet = new Set(right);
+  return left.filter((column) => rightSet.has(column));
+}
+
+function quoteIdentifier(value) {
+  return `"${String(value).replaceAll('"', '""')}"`;
+}
+
+function sqlString(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
 }
 
 export function recoverCodexHistoryAccess({ homeDir = os.homedir() } = {}) {

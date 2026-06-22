@@ -508,6 +508,11 @@ function appendHistorySyncLog(historySync) {
   if (!historySync) {
     return;
   }
+  if (historySync.totalImportedThreads > 0) {
+    appendLog(
+      `Merged Codex history: ${historySync.totalImportedThreads} missing conversation(s) restored from CodexBridge history backups.`,
+    );
+  }
   if (historySync.totalUpdatedThreads > 0) {
     appendLog(
       `Merged Codex history: ${historySync.totalUpdatedThreads} legacy CodexBridge conversation(s) moved into the built-in OpenAI history provider.`,

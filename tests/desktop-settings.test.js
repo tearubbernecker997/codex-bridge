@@ -864,16 +864,44 @@ test("syncCodexBridgeConversationProviders moves legacy provider threads into Op
   assert.equal(providerCount(dbPath, "openai"), 3);
 });
 
+test("syncCodexBridgeConversationProviders merges missing threads from history backups", () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-home-"));
+  const codexDir = path.join(homeDir, ".codex");
+  fs.mkdirSync(codexDir, { recursive: true });
+  const dbPath = createCodexStateDb(codexDir, [
+    ["thread_old_history", "openai", "gpt-5.5", "Old history"],
+  ]);
+  createCodexStateDb(codexDir, [
+    ["thread_new_bridge", "codex-bridge", "gpt-5.4", "New Bridge thread"],
+    ["thread_new_child", "codex-bridge", "gpt-5.4", "New child thread"],
+  ], `${dbPath}.codexbridge-history.2026-06-22-090000000.bak`, {
+    spawnEdges: [["thread_new_bridge", "thread_new_child", "completed"]],
+  });
+
+  const result = syncCodexBridgeConversationProviders({ homeDir });
+
+  assert.equal(result.totalImportedThreads, 2);
+  assert.equal(result.totalUpdatedThreads, 2);
+  assert.equal(threadCount(dbPath), 3);
+  assert.equal(threadSpawnEdgeCount(dbPath), 1);
+  assert.equal(providerCount(dbPath, "codex-bridge"), 0);
+  assert.equal(providerCount(dbPath, "openai"), 3);
+  assert.equal(threadTitle(dbPath, "thread_old_history"), "Old history");
+  assert.equal(threadTitle(dbPath, "thread_new_bridge"), "New Bridge thread");
+});
+
 function makeTempProject() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-test-"));
 }
 
-function createCodexStateDb(codexDir, rows) {
-  const dbPath = path.join(codexDir, "state_5.sqlite");
+function createCodexStateDb(codexDir, rows, dbPath = path.join(codexDir, "state_5.sqlite"), options = {}) {
   const db = new DatabaseSync(dbPath);
   try {
     db.exec(
       "CREATE TABLE threads (id TEXT PRIMARY KEY, model_provider TEXT, model TEXT, title TEXT)",
+    );
+    db.exec(
+      "CREATE TABLE thread_spawn_edges (parent_thread_id TEXT, child_thread_id TEXT, status TEXT)",
     );
     const insert = db.prepare(
       "INSERT INTO threads (id, model_provider, model, title) VALUES (?, ?, ?, ?)",
@@ -881,10 +909,43 @@ function createCodexStateDb(codexDir, rows) {
     for (const row of rows) {
       insert.run(...row);
     }
+    const insertSpawnEdge = db.prepare(
+      "INSERT INTO thread_spawn_edges (parent_thread_id, child_thread_id, status) VALUES (?, ?, ?)",
+    );
+    for (const row of options.spawnEdges || []) {
+      insertSpawnEdge.run(...row);
+    }
   } finally {
     db.close();
   }
   return dbPath;
+}
+
+function threadCount(dbPath) {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    return db.prepare("SELECT COUNT(*) AS count FROM threads").get().count;
+  } finally {
+    db.close();
+  }
+}
+
+function threadTitle(dbPath, id) {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    return db.prepare("SELECT title FROM threads WHERE id = ?").get(id).title;
+  } finally {
+    db.close();
+  }
+}
+
+function threadSpawnEdgeCount(dbPath) {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    return db.prepare("SELECT COUNT(*) AS count FROM thread_spawn_edges").get().count;
+  } finally {
+    db.close();
+  }
 }
 
 function providerCount(dbPath, provider) {
