@@ -48,12 +48,12 @@
         <div class="toast hidden" id="toast"></div>
 
         <section class="section-panel" id="dashboard">
-          <div class="grid two">
-            <article class="panel">
+          <div class="grid two overview-grid">
+            <article class="panel mode-panel">
               <div class="panel-header">
                 <div>
                   <h2>计费模式</h2>
-                  <p>混合模式适合 GPT 走 Codex 订阅、其他模型走各自 API；全部 API 模式适合统一走 API 或团队接口。</p>
+                  <p>决定 GPT、DeepSeek、Kimi 和自定义模型分别走订阅还是 API。</p>
                 </div>
               </div>
               <div class="mode-grid">
@@ -66,13 +66,14 @@
                   <span class="mode-copy">所有模型都使用你配置的 API Key，适合统一走 API 或团队接口账户。</span>
                 </button>
               </div>
+              <p class="mode-note">切换模式后，下面的模型栏和密钥状态会按当前选择自动刷新。</p>
             </article>
 
             <article class="panel run-panel">
               <div class="panel-header">
                 <div>
                   <h2>运行控制</h2>
-                  <p>更新会生成模型目录并写入 CodexBridge 配置；Router 开关负责本地网关是否接收 Codex 请求。</p>
+                  <p>先更新配置，再打开本地网关，最后重开 Codex。</p>
                 </div>
               </div>
               <div class="action-grid">
@@ -91,7 +92,7 @@
                   <small>遇到 502、fetch failed 或 VPN/代理冲突时可开启；只影响 CodexBridge Router。</small>
                 </span>
               </label>
-              <p class="helper-copy">常规流程：选模型、填密钥、更新配置、启动 Router，然后手动关闭并重新打开 Codex。右上角“找回历史对话”会从备份合并历史/桌面配置，但不会把模型栏和 Router 配置退回切换前。</p>
+              <p class="helper-copy flow-copy">常规流程：选模型 → 填密钥 → 更新配置 → 启动 Router → 重开 Codex。</p>
             </article>
           </div>
 

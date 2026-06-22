@@ -219,6 +219,11 @@ h3 {
   align-items: start;
 }
 
+.overview-grid {
+  grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.85fr);
+  align-items: stretch;
+}
+
 .grid.three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -259,24 +264,56 @@ h3 {
   justify-content: flex-end;
 }
 
-.mode-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.mode-panel {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
-.mode-card {
-  min-height: 150px;
-  padding: 16px;
+.mode-panel .panel-header,
+.run-panel .panel-header {
+  margin-bottom: 0;
+}
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 5px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--panel-soft);
+  background: #f5f8f9;
+}
+
+.mode-card {
+  position: relative;
+  min-height: 124px;
+  padding: 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: #fff;
   text-align: left;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .mode-card.active {
   border-color: var(--accent);
   background: var(--accent-soft);
+  box-shadow: 0 8px 22px rgba(15, 125, 115, 0.08);
+}
+
+.mode-card.active::after {
+  content: "";
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
 }
 
 .mode-title {
@@ -288,13 +325,24 @@ h3 {
   display: block;
   margin-top: 10px;
   color: var(--muted);
-  line-height: 1.55;
+  line-height: 1.5;
+}
+
+.mode-note {
+  margin-top: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfd;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .run-panel {
   display: grid;
   align-content: start;
-  gap: 12px;
+  gap: 10px;
 }
 
 .run-panel .action-grid {
@@ -308,8 +356,8 @@ h3 {
   column-gap: 12px;
   row-gap: 3px;
   align-items: center;
-  min-height: 74px;
-  padding: 14px;
+  min-height: 64px;
+  padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
@@ -363,9 +411,10 @@ h3 {
 }
 
 .health-card {
-  min-height: 42px;
-  padding: 11px 12px;
+  min-height: 0;
+  padding: 10px 12px;
   color: var(--muted);
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -384,9 +433,9 @@ h3 {
 .option-toggle {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 10px;
+  gap: 9px;
   align-items: start;
-  padding: 12px;
+  padding: 10px 12px;
 }
 
 .option-toggle input {
@@ -404,6 +453,17 @@ h3 {
 .option-toggle small {
   margin-top: 3px;
   color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.flow-copy {
+  margin-top: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--gold);
+  border-radius: 8px;
+  background: #fffaf0;
+  font-size: 12px;
   line-height: 1.45;
 }
 
