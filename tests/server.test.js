@@ -1225,6 +1225,109 @@ for (const encodingCase of codexRequestBodyEncodingCases) {
   });
 }
 
+test("server accepts Codex Desktop response probes without an upstream call", async () => {
+  let upstreamCalls = 0;
+  const upstream = http.createServer((_req, res) => {
+    upstreamCalls += 1;
+    res.writeHead(500, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "unexpected upstream call" }));
+  });
+
+  await listen(upstream);
+  const upstreamUrl = serverUrl(upstream);
+
+  const router = createRouterServer({
+    host: "127.0.0.1",
+    port: 0,
+    authToken: "router-token",
+    defaultModel: "gpt-5.5",
+    models: [
+      {
+        id: "gpt-5.5",
+        displayName: "GPT-5.5",
+        api: "responses",
+        baseUrl: `${upstreamUrl}/v1`,
+        model: "gpt-5.5",
+        authMode: "codex_openai",
+      },
+    ],
+  });
+
+  await listen(router);
+  const baseUrl = serverUrl(router);
+
+  try {
+    const response = await fetchJson(`${baseUrl}/v1/responses`, {
+      method: "GET",
+      headers: {
+        authorization: "Bearer router-token",
+      },
+    });
+
+    assert.equal(response.object, "list");
+    assert.deepEqual(response.data, []);
+    assert.equal(upstreamCalls, 0);
+  } finally {
+    await close(router);
+    await close(upstream);
+  }
+});
+
+test("server accepts Codex Desktop model setting updates without an upstream call", async () => {
+  let upstreamCalls = 0;
+  const upstream = http.createServer((_req, res) => {
+    upstreamCalls += 1;
+    res.writeHead(500, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "unexpected upstream call" }));
+  });
+
+  await listen(upstream);
+  const upstreamUrl = serverUrl(upstream);
+
+  const router = createRouterServer({
+    host: "127.0.0.1",
+    port: 0,
+    authToken: "router-token",
+    defaultModel: "gpt-5.5",
+    models: [
+      {
+        id: "gpt-5.5",
+        displayName: "GPT-5.5",
+        api: "responses",
+        baseUrl: `${upstreamUrl}/v1`,
+        model: "gpt-5.5",
+        authMode: "codex_openai",
+      },
+    ],
+  });
+
+  await listen(router);
+  const baseUrl = serverUrl(router);
+
+  try {
+    for (const method of ["PATCH", "PUT"]) {
+      const response = await fetchJson(`${baseUrl}/v1/responses`, {
+        method,
+        headers: {
+          "content-type": "application/json",
+          authorization: "Bearer codex-openai-token",
+        },
+        body: JSON.stringify({
+          model: "gpt-5.4-mini",
+          model_reasoning_effort: "high",
+        }),
+      });
+
+      assert.equal(response.ok, true);
+      assert.equal(response.model, "gpt-5.4-mini");
+    }
+    assert.equal(upstreamCalls, 0);
+  } finally {
+    await close(router);
+    await close(upstream);
+  }
+});
+
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 }

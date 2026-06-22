@@ -54,6 +54,30 @@ export function createRouterServer(config = loadConfig()) {
         return;
       }
 
+      if (req.method === "GET" && isResponsesCollection(url.pathname)) {
+        jsonResponse(res, 200, {
+          object: "list",
+          data: [],
+          has_more: false,
+        });
+        return;
+      }
+
+      if (
+        ["PATCH", "PUT"].includes(req.method || "") &&
+        isResponsesCollection(url.pathname)
+      ) {
+        const body = await readJsonRequest(req);
+        jsonResponse(res, 200, {
+          ok: true,
+          object: "codexbridge.model_settings",
+          model: body.model || activeConfig.defaultModel || null,
+          model_reasoning_effort:
+            body.model_reasoning_effort || body.reasoning_effort || null,
+        });
+        return;
+      }
+
       if (
         req.method === "POST" &&
         ["/v1/responses", "/responses"].includes(url.pathname)
@@ -162,10 +186,14 @@ function bearerTokenFromHeader(value) {
 function writeCors(res) {
   res.writeHead(204, {
     "access-control-allow-origin": "*",
-    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-methods": "GET,POST,PATCH,PUT,OPTIONS",
     "access-control-allow-headers": "authorization,content-type",
   });
   res.end();
+}
+
+function isResponsesCollection(pathname) {
+  return ["/v1/responses", "/responses"].includes(pathname);
 }
 
 function makeRequestId() {
