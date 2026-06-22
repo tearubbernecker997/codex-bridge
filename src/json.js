@@ -84,6 +84,15 @@ function decodeRequestBody(body, contentEncoding = "") {
       decoded = zlib.brotliDecompressSync(decoded);
       continue;
     }
+    if (encoding === "zstd") {
+      if (typeof zlib.zstdDecompressSync !== "function") {
+        const error = new Error("This Node runtime cannot decode zstd request bodies");
+        error.statusCode = 415;
+        throw error;
+      }
+      decoded = zlib.zstdDecompressSync(decoded);
+      continue;
+    }
     const error = new Error(`Unsupported request content-encoding: ${contentEncoding}`);
     error.statusCode = 415;
     throw error;
