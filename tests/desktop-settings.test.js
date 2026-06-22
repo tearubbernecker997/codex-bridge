@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   MODE_ALL_API,
   MODE_HYBRID,
@@ -27,6 +28,7 @@ import {
   secretValue,
   secretStatus,
   supportDiagnostics,
+  syncCodexBridgeConversationProviders,
 } from "../desktop/settings.mjs";
 
 test("detectModeFromConfig distinguishes all-api and hybrid", () => {
@@ -662,6 +664,30 @@ test("applyCodexConfig skips backup when Codex config is already current", () =>
   assert.equal(fs.readdirSync(codexDir).filter((name) => name.includes(".bak")).length, 0);
 });
 
+test("applyCodexConfig syncs legacy CodexBridge conversations even when config is current", () => {
+  const rootDir = makeTempProject();
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-home-"));
+  const codexDir = path.join(homeDir, ".codex");
+  fs.mkdirSync(codexDir, { recursive: true });
+  const target = path.join(codexDir, "config.toml");
+  fs.writeFileSync(target, buildCodexToml({ rootDir, mode: MODE_HYBRID }), "utf8");
+  const dbPath = createCodexStateDb(codexDir, [
+    ["thread_bridge", "codex-bridge", "gpt-5.5", "Bridge thread"],
+    ["thread_openai", "openai", "gpt-5.5", "OpenAI thread"],
+  ]);
+
+  const result = applyCodexConfig({
+    rootDir,
+    mode: MODE_HYBRID,
+    homeDir,
+  });
+
+  assert.equal(result.unchanged, true);
+  assert.equal(result.historySync.totalUpdatedThreads, 1);
+  assert.equal(providerCount(dbPath, "codex-bridge"), 0);
+  assert.equal(providerCount(dbPath, "openai"), 2);
+});
+
 test("prepareRouterStartConfig refreshes stale Codex local endpoint before router starts", () => {
   const rootDir = makeTempProject();
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-home-"));
@@ -780,7 +806,7 @@ test("recoverCodexHistoryAccess keeps CodexBridge config and only enables histor
   assert.ok(recovered.currentBackup, "current CodexBridge config should be backed up before recovery");
 });
 
-test("recoverCodexHistoryAccess merges the pre-Bridge backup back into current CodexBridge config", () => {
+test("recoverCodexHistoryAccess does not roll current CodexBridge config back to old backups", () => {
   const rootDir = makeTempProject();
   const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-home-"));
   const codexDir = path.join(homeDir, ".codex");
@@ -812,13 +838,64 @@ test("recoverCodexHistoryAccess merges the pre-Bridge backup back into current C
   assert.match(written, /model_provider = "openai"/);
   assert.match(written, /openai_base_url = "http:\/\/localhost:15722\/v1"/);
   assert.doesNotMatch(written, /\[model_providers\.codex-bridge]/);
-  assert.match(written, /\[history]\s+persistence = "save-all"/);
-  assert.match(written, /\[desktop]\s+appearanceTheme = "dark"/);
+  assert.doesNotMatch(written, /\[history]\s+persistence = "save-all"/);
+  assert.doesNotMatch(written, /\[desktop]\s+appearanceTheme = "dark"/);
   assert.doesNotMatch(written, /disable_response_storage = true/);
+});
+
+test("syncCodexBridgeConversationProviders moves legacy provider threads into OpenAI", () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-home-"));
+  const codexDir = path.join(homeDir, ".codex");
+  fs.mkdirSync(codexDir, { recursive: true });
+  const dbPath = createCodexStateDb(codexDir, [
+    ["thread_a", "codex-bridge", "gpt-5.5", "Bridge A"],
+    ["thread_b", "codex-bridge", "gpt-5.4", "Bridge B"],
+    ["thread_c", "openai", "gpt-5.5", "OpenAI C"],
+  ]);
+
+  const result = syncCodexBridgeConversationProviders({ homeDir });
+
+  assert.equal(result.totalUpdatedThreads, 2);
+  assert.equal(result.databases.length, 1);
+  assert.equal(result.databases[0].updatedThreads, 2);
+  assert.ok(result.databases[0].backup);
+  assert.equal(fs.existsSync(result.databases[0].backup), true);
+  assert.equal(providerCount(dbPath, "codex-bridge"), 0);
+  assert.equal(providerCount(dbPath, "openai"), 3);
 });
 
 function makeTempProject() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-test-"));
+}
+
+function createCodexStateDb(codexDir, rows) {
+  const dbPath = path.join(codexDir, "state_5.sqlite");
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec(
+      "CREATE TABLE threads (id TEXT PRIMARY KEY, model_provider TEXT, model TEXT, title TEXT)",
+    );
+    const insert = db.prepare(
+      "INSERT INTO threads (id, model_provider, model, title) VALUES (?, ?, ?, ?)",
+    );
+    for (const row of rows) {
+      insert.run(...row);
+    }
+  } finally {
+    db.close();
+  }
+  return dbPath;
+}
+
+function providerCount(dbPath, provider) {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    return db
+      .prepare("SELECT COUNT(*) AS count FROM threads WHERE model_provider = ?")
+      .get(provider).count;
+  } finally {
+    db.close();
+  }
 }
 
 function escapeRegExp(value) {

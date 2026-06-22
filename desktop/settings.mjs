@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -8,6 +9,8 @@ import {
   defaultSelectedModelIds,
   providerById,
 } from "./presets.mjs";
+
+const require = createRequire(import.meta.url);
 
 export {
   CODEX_MODEL_SLOTS,
@@ -475,9 +478,10 @@ export function applyCodexConfig({
   const bridgeContent = buildCodexToml({ rootDir, mode, port });
   const existingContent = fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "";
   const content = mergeCodexBridgeConfig(existingContent, bridgeContent);
+  const historySync = syncCodexBridgeConversationProviders({ homeDir });
 
   if (fs.existsSync(target) && existingContent === content) {
-    return { target, backup: null, unchanged: true };
+    return { target, backup: null, unchanged: true, historySync };
   }
 
   let backup = null;
@@ -487,7 +491,7 @@ export function applyCodexConfig({
   }
 
   fs.writeFileSync(target, content, "utf8");
-  return { target, backup, unchanged: false };
+  return { target, backup, unchanged: false, historySync };
 }
 
 export function restoreCodexConfig({ homeDir = os.homedir() } = {}) {
@@ -518,8 +522,82 @@ export function restoreCodexConfig({ homeDir = os.homedir() } = {}) {
   };
 }
 
+export function syncCodexBridgeConversationProviders({ homeDir = os.homedir() } = {}) {
+  const codexDir = path.join(homeDir, ".codex");
+  const result = {
+    ok: true,
+    skipped: false,
+    reason: "",
+    totalUpdatedThreads: 0,
+    databases: [],
+  };
+
+  if (!fs.existsSync(codexDir)) {
+    return {
+      ...result,
+      skipped: true,
+      reason: "codex_dir_missing",
+    };
+  }
+
+  let DatabaseSync;
+  try {
+    ({ DatabaseSync } = require("node:sqlite"));
+  } catch (error) {
+    return {
+      ...result,
+      ok: false,
+      skipped: true,
+      reason: "node_sqlite_unavailable",
+      error: error.message,
+    };
+  }
+
+  const dbPaths = codexStateDatabasePaths(codexDir);
+  if (!dbPaths.length) {
+    return {
+      ...result,
+      skipped: true,
+      reason: "state_db_missing",
+    };
+  }
+
+  for (const dbPath of dbPaths) {
+    const item = {
+      path: dbPath,
+      ok: true,
+      skipped: false,
+      reason: "",
+      updatedThreads: 0,
+      backup: null,
+    };
+    try {
+      const legacyThreads = countLegacyCodexBridgeThreads(DatabaseSync, dbPath);
+      if (legacyThreads < 1) {
+        item.skipped = true;
+        item.reason = "no_legacy_threads";
+        result.databases.push(item);
+        continue;
+      }
+
+      item.backup = backupCodexStateDatabase(dbPath);
+      item.updatedThreads = updateLegacyCodexBridgeThreads(DatabaseSync, dbPath);
+      result.totalUpdatedThreads += item.updatedThreads;
+      result.databases.push(item);
+    } catch (error) {
+      item.ok = false;
+      item.error = error.message;
+      result.ok = false;
+      result.databases.push(item);
+    }
+  }
+
+  return result;
+}
+
 export function recoverCodexHistoryAccess({ homeDir = os.homedir() } = {}) {
   const target = codexConfigPath(homeDir);
+  const historySync = syncCodexBridgeConversationProviders({ homeDir });
   if (!fs.existsSync(target)) {
     throw new Error("没有找到 Codex 配置文件，无法自动开启历史对话显示。");
   }
@@ -531,15 +609,13 @@ export function recoverCodexHistoryAccess({ homeDir = os.homedir() } = {}) {
       currentBackup: null,
       unchanged: true,
       action: "recover_history_access",
+      historySync,
       message: "当前 Codex 配置不是 CodexBridge 配置，无需调整。历史对话应由当前 Codex 配置自行显示。",
       nextStep: "请完全退出并重启 Codex。若还要使用 CodexBridge，请回到本应用点击“更新 Codex 配置”并打开 Router。",
     };
   }
 
-  const backups = fs.existsSync(path.dirname(target)) ? codexBridgeBackups(path.dirname(target)) : [];
-  const restoreFrom = backups.length ? preferredRestoreBackup(backups) : null;
-  const baseContent = restoreFrom ? fs.readFileSync(restoreFrom.fullPath, "utf8") : content;
-  const nextContent = enableResponseStorage(mergeCodexBridgeConfig(baseContent, content));
+  const nextContent = enableResponseStorage(content);
   let currentBackup = null;
   let unchanged = nextContent === content;
   if (!unchanged) {
@@ -553,11 +629,75 @@ export function recoverCodexHistoryAccess({ homeDir = os.homedir() } = {}) {
     currentBackup,
     unchanged,
     action: "recover_history_access",
+    historySync,
     message: unchanged
       ? "配置已包含历史对话设置，没有修改；请完全退出并重新打开 Codex。"
-      : "已合并历史对话配置，并保留当前模型与 Router 配置；请完全退出并重新打开 Codex。",
-    nextStep: "请完全退出并重启 Codex；模型栏仍会继续使用 CodexBridge 当前配置。",
+      : "已开启历史对话显示，并保留当前模型、插件与 Router 配置；请完全退出并重新打开 Codex。",
+    nextStep: "请完全退出并重启 Codex；历史会话会按 Codex 内置 OpenAI 分组显示，模型栏仍会继续使用 CodexBridge 当前配置。",
   };
+}
+
+function codexStateDatabasePaths(codexDir) {
+  return fs
+    .readdirSync(codexDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => /^state(?:_\d+)?\.sqlite$/.test(name))
+    .sort()
+    .map((name) => path.join(codexDir, name));
+}
+
+function countLegacyCodexBridgeThreads(DatabaseSync, dbPath) {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA busy_timeout = 1500");
+    if (!hasThreadProviderColumn(db)) {
+      return 0;
+    }
+    return Number(
+      db
+        .prepare("SELECT COUNT(*) AS count FROM threads WHERE model_provider = ?")
+        .get("codex-bridge").count,
+    );
+  } finally {
+    db.close();
+  }
+}
+
+function updateLegacyCodexBridgeThreads(DatabaseSync, dbPath) {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA busy_timeout = 1500");
+    const result = db
+      .prepare("UPDATE threads SET model_provider = ? WHERE model_provider = ?")
+      .run("openai", "codex-bridge");
+    return Number(result.changes || 0);
+  } finally {
+    db.close();
+  }
+}
+
+function hasThreadProviderColumn(db) {
+  const table = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get("threads");
+  if (!table) {
+    return false;
+  }
+  const columns = db.prepare("PRAGMA table_info(threads)").all();
+  return columns.some((column) => column.name === "model_provider");
+}
+
+function backupCodexStateDatabase(dbPath) {
+  const backup = `${dbPath}.codexbridge-history.${timestamp()}.bak`;
+  fs.copyFileSync(dbPath, backup);
+  for (const suffix of ["-wal", "-shm"]) {
+    const sidecar = `${dbPath}${suffix}`;
+    if (fs.existsSync(sidecar)) {
+      fs.copyFileSync(sidecar, `${backup}${suffix}`);
+    }
+  }
+  return backup;
 }
 
 function mergeCodexBridgeConfig(baseContent, bridgeContent) {

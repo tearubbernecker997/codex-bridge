@@ -262,6 +262,7 @@ ipcMain.handle("codex:apply", async () => {
   if (result.backup) {
     appendLog(`Backup created: ${result.backup}`);
   }
+  appendHistorySyncLog(result.historySync);
   return result;
 });
 
@@ -286,6 +287,7 @@ ipcMain.handle("codex:initialize", async () => {
   if (codexResult.backup) {
     appendLog(`Backup created: ${codexResult.backup}`);
   }
+  appendHistorySyncLog(codexResult.historySync);
   broadcastState();
   return {
     ok: true,
@@ -312,6 +314,7 @@ ipcMain.handle("codex:recover-history", async () => {
   if (result.currentBackup) {
     appendLog(`Current CodexBridge config backed up before history access update: ${result.currentBackup}`);
   }
+  appendHistorySyncLog(result.historySync);
   appendLog(result.nextStep);
   broadcastState();
   return result;
@@ -338,6 +341,7 @@ ipcMain.handle("router:start", async () => {
   if (prepared.codex.backup) {
     appendLog(`Backup created: ${prepared.codex.backup}`);
   }
+  appendHistorySyncLog(prepared.codex.historySync);
   const catalogResult = await runNodeScript([
     scriptPath("scripts/generate-catalog.js"),
     settings.catalogPath(dataRootDir),
@@ -498,6 +502,29 @@ function appendLog(line) {
   logLines = logLines.slice(-300);
   mainWindow?.webContents.send("logs:update", logLines);
   mainWindow?.webContents.send("usage:update", usagePayload());
+}
+
+function appendHistorySyncLog(historySync) {
+  if (!historySync) {
+    return;
+  }
+  if (historySync.totalUpdatedThreads > 0) {
+    appendLog(
+      `Merged Codex history: ${historySync.totalUpdatedThreads} legacy CodexBridge conversation(s) moved into the built-in OpenAI history provider.`,
+    );
+  } else if (historySync.skipped && historySync.reason) {
+    appendLog(`Codex history sync skipped: ${historySync.reason}.`);
+  } else {
+    appendLog("Codex history sync checked: no legacy CodexBridge conversations found.");
+  }
+  for (const database of historySync.databases || []) {
+    if (database.backup) {
+      appendLog(`Codex history database backup created: ${database.backup}`);
+    }
+    if (!database.ok && database.error) {
+      appendLog(`Codex history sync warning: ${database.path}: ${database.error}`);
+    }
+  }
 }
 
 function appendDiagnosticsLog(diagnostics) {

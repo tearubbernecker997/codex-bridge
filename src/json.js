@@ -1,3 +1,5 @@
+import zlib from "node:zlib";
+
 export function cloneJson(value) {
   if (value === undefined) {
     return undefined;
@@ -40,7 +42,15 @@ export async function readJsonRequest(req, limitBytes = 25 * 1024 * 1024) {
     chunks.push(chunk);
   }
 
-  const text = Buffer.concat(chunks).toString("utf8");
+  const rawBody = Buffer.concat(chunks);
+  const decodedBody = decodeRequestBody(rawBody, req.headers?.["content-encoding"]);
+  if (decodedBody.length > limitBytes) {
+    const error = new Error(`Request body exceeds ${limitBytes} bytes`);
+    error.statusCode = 413;
+    throw error;
+  }
+
+  const text = decodedBody.toString("utf8");
   try {
     return text ? JSON.parse(text) : {};
   } catch (cause) {
@@ -49,6 +59,36 @@ export async function readJsonRequest(req, limitBytes = 25 * 1024 * 1024) {
     error.cause = cause;
     throw error;
   }
+}
+
+function decodeRequestBody(body, contentEncoding = "") {
+  const encodings = String(contentEncoding || "")
+    .split(",")
+    .map((encoding) => encoding.trim().toLowerCase())
+    .filter(Boolean);
+
+  let decoded = body;
+  for (const encoding of encodings.reverse()) {
+    if (encoding === "identity") {
+      continue;
+    }
+    if (encoding === "gzip" || encoding === "x-gzip") {
+      decoded = zlib.gunzipSync(decoded);
+      continue;
+    }
+    if (encoding === "deflate") {
+      decoded = zlib.inflateSync(decoded);
+      continue;
+    }
+    if (encoding === "br") {
+      decoded = zlib.brotliDecompressSync(decoded);
+      continue;
+    }
+    const error = new Error(`Unsupported request content-encoding: ${contentEncoding}`);
+    error.statusCode = 415;
+    throw error;
+  }
+  return decoded;
 }
 
 export function jsonResponse(res, statusCode, body, headers = {}) {

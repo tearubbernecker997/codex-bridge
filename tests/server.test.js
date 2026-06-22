@@ -4,6 +4,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
+import zlib from "node:zlib";
 import { loadConfig } from "../src/config.js";
 import { createRouterServer } from "../src/server.js";
 
@@ -1109,6 +1110,72 @@ test("upstream HTTP errors include route and upstream message for diagnosis", as
     assert.match(errors.join("\n"), /body=.*Unknown error/);
   } finally {
     console.error = originalError;
+    await close(router);
+    await close(upstream);
+  }
+});
+
+test("server accepts gzip encoded JSON request bodies from Codex", async () => {
+  const upstream = http.createServer(async (req, res) => {
+    assert.equal(req.url, "/v1/chat/completions");
+
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        id: "chatcmpl_gzip",
+        object: "chat.completion",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "decoded gzip body",
+            },
+          },
+        ],
+      }),
+    );
+  });
+
+  await listen(upstream);
+  const upstreamUrl = serverUrl(upstream);
+
+  const router = createRouterServer({
+    host: "127.0.0.1",
+    port: 0,
+    authToken: "router-token",
+    defaultModel: "gpt-5.4-mini",
+    models: [
+      {
+        id: "gpt-5.4-mini",
+        displayName: "DeepSeek V4 Pro",
+        api: "chat_completions",
+        baseUrl: `${upstreamUrl}/v1`,
+        model: "deepseek-v4-pro",
+        apiKey: "upstream-key",
+      },
+    ],
+  });
+
+  await listen(router);
+  const baseUrl = serverUrl(router);
+
+  try {
+    const response = await fetchJson(`${baseUrl}/v1/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-encoding": "gzip",
+        authorization: "Bearer router-token",
+      },
+      body: zlib.gzipSync(
+        JSON.stringify({
+          model: "gpt-5.4-mini",
+          input: "hello",
+        }),
+      ),
+    });
+    assert.equal(response.output_text, "decoded gzip body");
+  } finally {
     await close(router);
     await close(upstream);
   }
