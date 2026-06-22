@@ -1100,6 +1100,93 @@ test("syncCodexBridgeConversationProviders repairs visibility for threads alread
   assert.equal(archived.has_user_event, 1);
 });
 
+test("syncCodexBridgeConversationProviders normalizes legacy local model providers", () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-home-"));
+  const codexDir = path.join(homeDir, ".codex");
+  fs.mkdirSync(codexDir, { recursive: true });
+  const dbPath = createCodexStateDbWithMetadata(codexDir, [
+    {
+      id: "thread_litellm",
+      modelProvider: "litellm",
+      source: "vscode",
+      threadSource: "user",
+      title: "LiteLLM thread",
+      firstUserMessage: "hello from litellm",
+    },
+    {
+      id: "thread_custom",
+      modelProvider: "custom",
+      source: "vscode",
+      threadSource: "user",
+      title: "Custom thread",
+      firstUserMessage: "hello from custom",
+    },
+    {
+      id: "thread_router",
+      modelProvider: "codex-multi-router",
+      source: "vscode",
+      threadSource: "user",
+      title: "Router thread",
+      firstUserMessage: "hello from router",
+    },
+    {
+      id: "thread_deepseek",
+      modelProvider: "deepseek",
+      source: "vscode",
+      threadSource: "user",
+      title: "DeepSeek thread",
+      firstUserMessage: "hello from deepseek",
+    },
+  ]);
+
+  const result = syncCodexBridgeConversationProviders({ homeDir });
+
+  assert.equal(result.totalNormalizedThreads, 4);
+  assert.equal(providerCount(dbPath, "openai"), 4);
+  for (const id of ["thread_litellm", "thread_custom", "thread_router", "thread_deepseek"]) {
+    const metadata = threadMetadata(dbPath, id);
+    assert.equal(metadata.model_provider, "openai");
+    assert.equal(metadata.source, "vscode");
+    assert.equal(metadata.thread_source, "user");
+    assert.equal(metadata.has_user_event, 1);
+  }
+});
+
+test("syncCodexBridgeConversationProviders marks existing OpenAI user threads as user events", () => {
+  const homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-home-"));
+  const codexDir = path.join(homeDir, ".codex");
+  fs.mkdirSync(codexDir, { recursive: true });
+  const dbPath = createCodexStateDbWithMetadata(codexDir, [
+    {
+      id: "thread_openai_missing_user_event",
+      modelProvider: "openai",
+      source: "vscode",
+      threadSource: "user",
+      title: "Visible title",
+      hasUserEvent: 0,
+      firstUserMessage: "你好",
+    },
+    {
+      id: "thread_empty_without_message",
+      modelProvider: "openai",
+      source: "vscode",
+      threadSource: "user",
+      title: "",
+      hasUserEvent: 0,
+      firstUserMessage: "",
+    },
+  ]);
+
+  const result = syncCodexBridgeConversationProviders({ homeDir });
+  const repaired = threadMetadata(dbPath, "thread_openai_missing_user_event");
+  const empty = threadMetadata(dbPath, "thread_empty_without_message");
+
+  assert.equal(result.totalNormalizedThreads, 1);
+  assert.equal(repaired.model_provider, "openai");
+  assert.equal(repaired.has_user_event, 1);
+  assert.equal(empty.has_user_event, 0);
+});
+
 function makeTempProject() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "codex-bridge-test-"));
 }
@@ -1144,7 +1231,8 @@ function createCodexStateDbWithMetadata(codexDir, rows, dbPath = path.join(codex
         "source TEXT,",
         "thread_source TEXT,",
         "archived INTEGER DEFAULT 0,",
-        "has_user_event INTEGER DEFAULT 0",
+        "has_user_event INTEGER DEFAULT 0,",
+        "first_user_message TEXT",
         ")",
       ].join(" "),
     );
@@ -1152,7 +1240,7 @@ function createCodexStateDbWithMetadata(codexDir, rows, dbPath = path.join(codex
       "CREATE TABLE thread_spawn_edges (parent_thread_id TEXT, child_thread_id TEXT, status TEXT)",
     );
     const insert = db.prepare(
-      "INSERT INTO threads (id, model_provider, model, title, source, thread_source, archived, has_user_event) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO threads (id, model_provider, model, title, source, thread_source, archived, has_user_event, first_user_message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
     );
     for (const row of rows) {
       insert.run(
@@ -1164,6 +1252,7 @@ function createCodexStateDbWithMetadata(codexDir, rows, dbPath = path.join(codex
         row.threadSource,
         row.archived || 0,
         row.hasUserEvent || 0,
+        row.firstUserMessage ?? null,
       );
     }
   } finally {

@@ -41,6 +41,18 @@ const LEGACY_CODEX_BRIDGE_THREAD_SOURCES = [
   "unknown",
 ];
 
+const LEGACY_LOCAL_HISTORY_PROVIDERS = [
+  "codex-multi-router",
+  "codex_multi_router",
+  "litellm",
+  "custom",
+  "deepseek",
+  "kimi",
+  "moonshot",
+  "local",
+  "unknown",
+];
+
 export function routerConfigPath(rootDir) {
   return path.join(rootDir, "config", "router.config.json");
 }
@@ -352,7 +364,8 @@ function codexHistoryDiagnostics({ homeDir = os.homedir() } = {}) {
     }
     lines.push(
       `- ${path.basename(dbPath)}: threads=${item.totalThreads}, hiddenCandidates=${item.hiddenCandidates}, ` +
-        `legacyProvider=${item.legacyProvider}, legacySource=${item.legacySource}, archived=${item.archived}, ` +
+        `legacyProvider=${item.legacyProvider}, legacyLocalProvider=${item.legacyLocalProvider}, ` +
+        `legacySource=${item.legacySource}, archived=${item.archived}, ` +
         `missingUserEvent=${item.missingUserEvent}, backups=${item.backups}, hiddenBackupRefs=${item.hiddenBackupReferenced}`,
     );
     if (item.providerGroups.length) {
@@ -385,6 +398,7 @@ function summarizeCodexHistoryDatabase(DatabaseSync, dbPath) {
     totalThreads: 0,
     hiddenCandidates: 0,
     legacyProvider: 0,
+    legacyLocalProvider: 0,
     legacySource: 0,
     archived: 0,
     missingUserEvent: 0,
@@ -415,6 +429,10 @@ function summarizeCodexHistoryDatabase(DatabaseSync, dbPath) {
         db,
         "SELECT COUNT(*) AS count FROM threads WHERE model_provider = ?",
         "codex-bridge",
+      );
+      item.legacyLocalProvider = sqliteCount(
+        db,
+        `SELECT COUNT(*) AS count FROM threads WHERE LOWER(model_provider) IN (${legacyLocalProviderSqlList()})`,
       );
       item.providerGroups = sqliteGroupedCounts(db, "threads", "model_provider");
     }
@@ -808,13 +826,17 @@ export function syncCodexBridgeConversationProviders({ homeDir = os.homedir() } 
     try {
       const missingBackupThreads = countMissingThreadsFromHistoryBackups(DatabaseSync, dbPath);
       const legacyThreads = countLegacyCodexBridgeThreads(DatabaseSync, dbPath);
+      const legacyLocalProviderThreads = countLegacyLocalProviderThreads(DatabaseSync, dbPath);
       const hiddenLegacyMetadataThreads = countHiddenLegacyMetadataThreads(DatabaseSync, dbPath);
       const hiddenBackupReferencedThreads = countHiddenBackupReferencedThreads(DatabaseSync, dbPath);
+      const openAiUserEventThreads = countOpenAiUserEventMetadataThreads(DatabaseSync, dbPath);
       if (
         legacyThreads < 1 &&
+        legacyLocalProviderThreads < 1 &&
         missingBackupThreads < 1 &&
         hiddenLegacyMetadataThreads < 1 &&
-        hiddenBackupReferencedThreads < 1
+        hiddenBackupReferencedThreads < 1 &&
+        openAiUserEventThreads < 1
       ) {
         item.skipped = true;
         item.reason = "no_legacy_threads";
@@ -827,7 +849,9 @@ export function syncCodexBridgeConversationProviders({ homeDir = os.homedir() } 
       item.updatedThreads = updateLegacyCodexBridgeThreads(DatabaseSync, dbPath);
       item.normalizedThreads =
         normalizeHiddenLegacyThreadMetadata(DatabaseSync, dbPath) +
-        normalizeBackupReferencedThreadMetadata(DatabaseSync, dbPath);
+        normalizeBackupReferencedThreadMetadata(DatabaseSync, dbPath) +
+        normalizeLegacyLocalHistoryProviders(DatabaseSync, dbPath) +
+        normalizeOpenAiUserEventMetadata(DatabaseSync, dbPath);
       result.totalImportedThreads += item.importedThreads;
       result.totalUpdatedThreads += item.updatedThreads;
       result.totalNormalizedThreads += item.normalizedThreads;
@@ -1131,6 +1155,25 @@ function countLegacyCodexBridgeThreads(DatabaseSync, dbPath) {
   }
 }
 
+function countLegacyLocalProviderThreads(DatabaseSync, dbPath) {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA busy_timeout = 1500");
+    if (!hasThreadProviderColumn(db)) {
+      return 0;
+    }
+    return Number(
+      db
+        .prepare(
+          `SELECT COUNT(*) AS count FROM threads WHERE LOWER(model_provider) IN (${legacyLocalProviderSqlList()})`,
+        )
+        .get().count,
+    );
+  } finally {
+    db.close();
+  }
+}
+
 function countHiddenLegacyMetadataThreads(DatabaseSync, dbPath) {
   const db = new DatabaseSync(dbPath);
   try {
@@ -1158,6 +1201,36 @@ function countHiddenLegacyMetadataThreads(DatabaseSync, dbPath) {
           "SELECT COUNT(*) AS count FROM threads " +
             "WHERE model_provider = ? " +
             `AND (${predicates.join(" OR ")})`,
+        )
+        .get("openai").count,
+    );
+  } finally {
+    db.close();
+  }
+}
+
+function countOpenAiUserEventMetadataThreads(DatabaseSync, dbPath) {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA busy_timeout = 1500");
+    if (!hasTable(db, "threads")) {
+      return 0;
+    }
+    const columns = tableColumns(db, "threads");
+    if (!columns.includes("model_provider") || !columns.includes("has_user_event")) {
+      return 0;
+    }
+    const userContentPredicate = realUserContentSql(columns);
+    if (!userContentPredicate) {
+      return 0;
+    }
+    return Number(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM threads " +
+            "WHERE model_provider = ? " +
+            "AND has_user_event = 0 " +
+            `AND (${userContentPredicate})`,
         )
         .get("openai").count,
     );
@@ -1318,6 +1391,74 @@ function normalizeBackupReferencedThreadMetadata(DatabaseSync, dbPath) {
   });
 }
 
+function normalizeLegacyLocalHistoryProviders(DatabaseSync, dbPath) {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA busy_timeout = 1500");
+    if (!hasTable(db, "threads")) {
+      return 0;
+    }
+    const columns = tableColumns(db, "threads");
+    if (!columns.includes("model_provider")) {
+      return 0;
+    }
+    const assignments = ["model_provider = ?"];
+    if (columns.includes("source")) {
+      assignments.push(
+        "source = CASE " +
+          `WHEN ${legacySourceNeedsVscodeSql("source")} THEN 'vscode' ` +
+          "ELSE source END",
+      );
+    }
+    if (columns.includes("thread_source")) {
+      assignments.push(
+        "thread_source = CASE " +
+          `WHEN ${legacyThreadSourceNeedsUserSql("thread_source")} THEN 'user' ` +
+          "ELSE thread_source END",
+      );
+    }
+    addVisibleThreadAssignments(assignments, columns);
+    const result = db
+      .prepare(
+        `UPDATE threads SET ${assignments.join(", ")} ` +
+          `WHERE LOWER(model_provider) IN (${legacyLocalProviderSqlList()})`,
+      )
+      .run("openai");
+    return Number(result.changes || 0);
+  } finally {
+    db.close();
+  }
+}
+
+function normalizeOpenAiUserEventMetadata(DatabaseSync, dbPath) {
+  const db = new DatabaseSync(dbPath);
+  try {
+    db.exec("PRAGMA busy_timeout = 1500");
+    if (!hasTable(db, "threads")) {
+      return 0;
+    }
+    const columns = tableColumns(db, "threads");
+    if (!columns.includes("model_provider") || !columns.includes("has_user_event")) {
+      return 0;
+    }
+    const userContentPredicate = realUserContentSql(columns);
+    if (!userContentPredicate) {
+      return 0;
+    }
+    const result = db
+      .prepare(
+        "UPDATE threads SET has_user_event = 1 " +
+          "WHERE model_provider = ? " +
+          "AND has_user_event = 0 " +
+          `AND (${userContentPredicate})`,
+      )
+      .run("openai");
+    return Number(result.changes || 0);
+  } finally {
+    db.close();
+  }
+}
+
 function withCodexStateMergeSources(DatabaseSync, dbPath, callback) {
   const backupPaths = codexStateMergeSourcePaths(dbPath);
   if (!backupPaths.length) {
@@ -1373,12 +1514,29 @@ function legacyThreadSourceSqlList() {
   return LEGACY_CODEX_BRIDGE_THREAD_SOURCES.map(sqlString).join(", ");
 }
 
+function legacyLocalProviderSqlList() {
+  return LEGACY_LOCAL_HISTORY_PROVIDERS.map(sqlString).join(", ");
+}
+
 function legacyThreadSourceNeedsUserSql(columnExpr) {
   return `(${columnExpr} IS NULL OR ${columnExpr} = '' OR LOWER(${columnExpr}) IN (${legacyThreadSourceSqlList()}))`;
 }
 
 function legacySourceNeedsVscodeSql(columnExpr) {
   return `(${columnExpr} IS NULL OR ${columnExpr} = '' OR LOWER(${columnExpr}) IN (${legacyThreadSourceSqlList()}))`;
+}
+
+function realUserContentSql(columns, tableAlias) {
+  const prefix = tableAlias ? `${tableAlias}.` : "";
+  const contentColumns = ["first_user_message", "preview", "title"].filter((column) =>
+    columns.includes(column),
+  );
+  if (!contentColumns.length) {
+    return "";
+  }
+  return contentColumns
+    .map((column) => `NULLIF(TRIM(CAST(${prefix}${quoteIdentifier(column)} AS TEXT)), '') IS NOT NULL`)
+    .join(" OR ");
 }
 
 function hasThreadProviderColumn(db) {
