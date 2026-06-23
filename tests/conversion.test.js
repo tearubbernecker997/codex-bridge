@@ -708,7 +708,7 @@ test("namespace tools keep unique names so MCP tools are not dropped", () => {
   );
 });
 
-test("chat namespace tool calls are returned with namespace metadata", () => {
+test("chat namespace tool calls are returned with full Codex tool names", () => {
   const converted = responsesToChatRequest(
     {
       input: "use node repl",
@@ -764,9 +764,49 @@ test("chat namespace tool calls are returned with namespace metadata", () => {
   );
 
   assert.equal(response.output[0].type, "function_call");
-  assert.equal(response.output[0].namespace, "mcp__node_repl__");
-  assert.equal(response.output[0].name, "js");
+  assert.equal(response.output[0].namespace, undefined);
+  assert.equal(response.output[0].name, "mcp__node_repl__js");
   assert.equal(response.output[0].arguments, '{"code":"1 + 1"}');
+});
+
+test("namespace tool choice is flattened for chat providers", () => {
+  const converted = responsesToChatRequest(
+    {
+      input: "use node repl",
+      tool_choice: {
+        type: "function",
+        namespace: "mcp__node_repl__",
+        name: "js",
+      },
+      tools: [
+        {
+          type: "namespace",
+          name: "mcp__node_repl__",
+          tools: [
+            {
+              type: "function",
+              name: "js",
+              description: "Run JavaScript.",
+              parameters: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                },
+                required: ["code"],
+              },
+            },
+          ],
+        },
+      ],
+    },
+    route,
+    new ResponseHistory(),
+  );
+
+  assert.deepEqual(converted.body.tool_choice, {
+    type: "function",
+    function: { name: "mcp__node_repl__js" },
+  });
 });
 
 test("non-function Codex tools with schemas are exposed to chat providers", () => {

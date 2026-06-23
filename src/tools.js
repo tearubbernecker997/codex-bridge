@@ -64,14 +64,15 @@ export function responseToolCallFromChat(call, context) {
     });
   }
 
-  return withNamespace(metadata, {
+  const functionCall = {
     id: `fc_${stableSuffix(callId)}`,
     type: "function_call",
     call_id: callId,
-    name: responseCallName,
+    name: metadata.namespace ? responseName : responseCallName,
     arguments: stringifyJson(args),
     status: "completed",
-  });
+  };
+  return metadata.namespace ? functionCall : withNamespace(metadata, functionCall);
 }
 
 export function chatToolCallFromResponseItem(item, context) {
@@ -258,7 +259,7 @@ function namespaceToolPrefix(value) {
   return raw.endsWith("__") ? raw : `${raw}__`;
 }
 
-function namespacedToolName(name, namespace) {
+export function namespacedToolName(name, namespace) {
   const rawName = String(name || "").trim();
   if (!namespace || !rawName) {
     return rawName;

@@ -5,6 +5,7 @@ import {
   chatToolCallFromResponseItem,
   isResponseToolCallItem,
   isResponseToolOutputItem,
+  namespacedToolName,
 } from "./tools.js";
 
 const MAX_CHAT_DATA_IMAGE_URL_CHARS = 2_000_000;
@@ -393,7 +394,11 @@ function chatToolChoice(toolChoice, toolContext) {
   if (!name) {
     return "auto";
   }
-  const chatName = toolContext.responseNameToChatName.get(name) || name;
+  const responseName = namespacedToolName(
+    name,
+    toolChoice.namespace || toolChoice.function?.namespace,
+  );
+  const chatName = toolContext.responseNameToChatName.get(responseName) || responseName;
   return { type: "function", function: { name: chatName } };
 }
 

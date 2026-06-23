@@ -457,16 +457,6 @@ h3 {
   line-height: 1.4;
 }
 
-.flow-copy {
-  margin-top: 0;
-  padding: 10px 12px;
-  border-left: 3px solid var(--gold);
-  border-radius: 8px;
-  background: #fffaf0;
-  font-size: 12px;
-  line-height: 1.45;
-}
-
 .primary-button,
 .plain-button,
 .ghost-button,
