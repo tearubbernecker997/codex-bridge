@@ -329,7 +329,23 @@ export async function proxyChatCompletions(
   const converted = responsesToChatRequest(requestBody, route, history);
   const upstreamUrl = joinUpstreamUrl(route.baseUrl, "/chat/completions");
   logRoute(context, route, upstreamUrl);
-  const upstream = await callJsonUpstream(upstreamUrl, route, converted.body, context);
+  let messagesForHistory = converted.messagesForHistory;
+  let upstream;
+  try {
+    upstream = await callJsonUpstream(upstreamUrl, route, converted.body, context);
+  } catch (error) {
+    if (!shouldRetryChatWithoutImages(error, converted.body)) {
+      throw error;
+    }
+    console.warn(
+      `[${new Date().toISOString()}] ${context.requestId || "req"} ` +
+        `!! upstream route=${route.id} image rejected; retrying without images`,
+    );
+    const textOnlyBody = chatBodyWithoutImages(converted.body);
+    messagesForHistory = chatMessagesWithoutImages(converted.messagesForHistory);
+    logRoute(context, route, upstreamUrl);
+    upstream = await callJsonUpstream(upstreamUrl, route, textOnlyBody, context);
+  }
   logUsage(context, route, upstream.usage);
   const response = chatResponseToResponse(
     upstream,
@@ -339,7 +355,7 @@ export async function proxyChatCompletions(
   );
 
   history.record(response.id, [
-    ...converted.messagesForHistory,
+    ...messagesForHistory,
     assistantHistoryMessageFromChat(upstream),
   ]);
   history.recordResponse(response, {
@@ -361,6 +377,89 @@ export async function proxyChatCompletions(
   }
 
   jsonResponse(res, 200, response);
+}
+
+const IMAGE_REJECTED_PLACEHOLDER =
+  "[image input omitted because upstream rejected image content]";
+
+function shouldRetryChatWithoutImages(error, body) {
+  if (!(error instanceof UpstreamHttpError)) {
+    return false;
+  }
+  if (!chatBodyHasImages(body)) {
+    return false;
+  }
+  const statusCode = Number(error.statusCode);
+  if (![400, 415, 422].includes(statusCode)) {
+    return false;
+  }
+  const upstreamText = `${error.bodyText || ""} ${error.message || ""}`.toLowerCase();
+  return (
+    !upstreamText ||
+    /image|vision|multi[-\s]?modal|image_url|input_image|unsupported media|content|part|invalid request/.test(
+      upstreamText,
+    )
+  );
+}
+
+function chatBodyHasImages(body) {
+  return Array.isArray(body?.messages) && body.messages.some(chatMessageHasImage);
+}
+
+function chatMessageHasImage(message) {
+  return chatContentHasImage(message?.content);
+}
+
+function chatContentHasImage(content) {
+  if (!content) {
+    return false;
+  }
+  if (Array.isArray(content)) {
+    return content.some(chatPartHasImage);
+  }
+  return chatPartHasImage(content);
+}
+
+function chatPartHasImage(part) {
+  if (!part || typeof part !== "object") {
+    return false;
+  }
+  const type = String(part.type || "").toLowerCase();
+  return type === "image_url" || type.includes("image") || Boolean(part.image_url);
+}
+
+function chatBodyWithoutImages(body) {
+  const sanitized = cloneJson(body);
+  sanitized.messages = chatMessagesWithoutImages(sanitized.messages);
+  return sanitized;
+}
+
+function chatMessagesWithoutImages(messages) {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+  return messages.map((message) => ({
+    ...message,
+    content: chatContentWithoutImages(message?.content),
+  }));
+}
+
+function chatContentWithoutImages(content) {
+  if (!content) {
+    return content;
+  }
+  if (!Array.isArray(content)) {
+    return chatPartHasImage(content) ? IMAGE_REJECTED_PLACEHOLDER : content;
+  }
+  const sanitizedParts = [];
+  for (const part of content) {
+    if (chatPartHasImage(part)) {
+      sanitizedParts.push({ type: "text", text: IMAGE_REJECTED_PLACEHOLDER });
+      continue;
+    }
+    sanitizedParts.push(part);
+  }
+  return sanitizedParts;
 }
 
 export async function callJsonUpstream(upstreamUrl, route, payload, context = {}) {

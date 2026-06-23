@@ -2451,6 +2451,119 @@ test("streaming responses without object field are recorded for later chat-compl
   assert.match(chatText, /what did streaming GPT say/);
 });
 
+test("chat route image rejection is retried without poisoning later conversation turns", async () => {
+  const chatBodies = [];
+  const upstream = http.createServer(async (req, res) => {
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    chatBodies.push(body);
+
+    if (JSON.stringify(body.messages).includes("\"image_url\"")) {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: {
+            message: "This model does not support image_url content.",
+          },
+        }),
+      );
+      return;
+    }
+
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        id: `chatcmpl_text_${chatBodies.length}`,
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "text-only retry succeeded",
+            },
+          },
+        ],
+      }),
+    );
+  });
+
+  await listen(upstream);
+  const upstreamUrl = serverUrl(upstream);
+  const router = createRouterServer({
+    host: "127.0.0.1",
+    port: 0,
+    authToken: "router-token",
+    defaultModel: "deepseek-v4-pro",
+    models: [
+      {
+        id: "deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        api: "chat_completions",
+        baseUrl: `${upstreamUrl}/v1`,
+        model: "deepseek-v4-pro",
+        apiKey: "upstream-key",
+        inputModalities: ["text", "image"],
+      },
+    ],
+  });
+
+  await listen(router);
+  const baseUrl = serverUrl(router);
+
+  try {
+    const first = await fetchJson(`${baseUrl}/v1/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer router-token",
+      },
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: "look at this image" },
+              {
+                type: "input_image",
+                image_url: "data:image/png;base64,abc123",
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    await fetchJson(`${baseUrl}/v1/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer router-token",
+      },
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        previous_response_id: first.id,
+        input: "continue without the image",
+      }),
+    });
+  } finally {
+    await close(router);
+    await close(upstream);
+  }
+
+  assert.equal(chatBodies.length, 3);
+  assert.match(JSON.stringify(chatBodies[0].messages), /image_url/);
+  assert.doesNotMatch(JSON.stringify(chatBodies[1].messages), /image_url/);
+  assert.doesNotMatch(JSON.stringify(chatBodies[2].messages), /image_url/);
+  assert.match(
+    JSON.stringify(chatBodies[2].messages),
+    /image input omitted because upstream rejected image content/,
+  );
+  assert.match(JSON.stringify(chatBodies[2].messages), /continue without the image/);
+});
+
 function snapshotEnv(keys) {
   return Object.fromEntries(keys.map((key) => [key, process.env[key]]));
 }
