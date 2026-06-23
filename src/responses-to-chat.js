@@ -19,6 +19,11 @@ const MCP_TOOL_GUIDANCE =
   "empty MCP resource/resource-template lists do not mean the tool is unavailable. " +
   "For Chrome, Browser, and Computer Use tasks, use the official Node REPL or computer tools when present. " +
   "Do not substitute shell commands such as Start-Process unless the user explicitly asks for a manual fallback.";
+const COMMAND_TOOL_GUIDANCE =
+  "CodexBridge command guidance: when the user explicitly asks you to run tests, commit, push, or publish " +
+  "and a command or shell tool is available, call that tool and report the exact command output. " +
+  "For git push, inspect git status and remotes if needed, then run git push with the configured remote. " +
+  "Do not claim network, GitHub, sandbox, or approval is unavailable unless an attempted command returns that error.";
 
 export function responsesToChatRequest(request, route, history) {
   const { messages: sourceMessages, toolContext } =
@@ -85,7 +90,7 @@ export function responseRequestToChatSourceMessages(request, route, history) {
   if (instructions) {
     messages.push({ role: "system", content: instructions });
   }
-  const toolGuidance = toolGuidanceFromContext(toolContext);
+  const toolGuidance = toolGuidanceFromContext(toolContext, request);
   if (toolGuidance) {
     messages.push({ role: "system", content: toolGuidance });
   }
@@ -376,7 +381,7 @@ function systemInstructionsFromRequest(request) {
   return parts.join("\n\n");
 }
 
-function toolGuidanceFromContext(toolContext) {
+function toolGuidanceFromContext(toolContext, request = {}) {
   if (!toolContext?.chatTools?.length) {
     return "";
   }
@@ -389,7 +394,54 @@ function toolGuidanceFromContext(toolContext) {
     name.includes("browser") ||
     name.includes("chrome")
   );
-  return needsGuidance ? MCP_TOOL_GUIDANCE : "";
+  const needsCommandGuidance =
+    names.some(isCommandToolName) && requestMentionsCommandWork(request);
+  return [
+    needsGuidance ? MCP_TOOL_GUIDANCE : "",
+    needsCommandGuidance ? COMMAND_TOOL_GUIDANCE : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function isCommandToolName(name) {
+  return (
+    name === "shell_command" ||
+    name === "exec_command" ||
+    name === "execute_command" ||
+    name.endsWith("__shell_command") ||
+    name.endsWith("__exec_command") ||
+    name.endsWith("__execute_command")
+  );
+}
+
+function requestMentionsCommandWork(request = {}) {
+  const text = `${request.instructions || ""}\n${requestInputText(request.input ?? request.messages)}`;
+  return /git|github|push|publish|commit|test|run tests|推送|发布|提交|测试|运行测试/i.test(text);
+}
+
+function requestInputText(input) {
+  if (input === undefined || input === null) {
+    return "";
+  }
+  if (typeof input === "string") {
+    return input;
+  }
+  if (Array.isArray(input)) {
+    return input.map(requestInputText).join("\n");
+  }
+  if (typeof input === "object") {
+    if (typeof input.text === "string") {
+      return input.text;
+    }
+    if (typeof input.content === "string") {
+      return input.content;
+    }
+    if (Array.isArray(input.content)) {
+      return input.content.map(requestInputText).join("\n");
+    }
+  }
+  return "";
 }
 
 function roleFromType(type) {

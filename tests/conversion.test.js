@@ -843,6 +843,34 @@ test("chat providers get guidance for flattened MCP tools", () => {
   assert.match(converted.body.messages[0].content, /Start-Process/);
 });
 
+test("chat providers get command guidance for explicit git push tasks", () => {
+  const converted = responsesToChatRequest(
+    {
+      input: "push this commit to GitHub",
+      tools: [
+        {
+          type: "function",
+          name: "shell_command",
+          description: "Run a shell command.",
+          parameters: {
+            type: "object",
+            properties: {
+              command: { type: "string" },
+            },
+            required: ["command"],
+          },
+        },
+      ],
+    },
+    route,
+    new ResponseHistory(),
+  );
+
+  assert.equal(converted.body.messages[0].role, "system");
+  assert.match(converted.body.messages[0].content, /git push/);
+  assert.match(converted.body.messages[0].content, /attempted command returns that error/);
+});
+
 test("non-function Codex tools with schemas are exposed to chat providers", () => {
   const converted = responsesToChatRequest(
     {
