@@ -484,9 +484,15 @@ test("custom apply_patch maps to chat function and back to custom_tool_call", ()
 
 test("previous_response_id restores assistant tool calls before tool output", () => {
   const history = new ResponseHistory();
+  const chatRoute = {
+    ...route,
+    id: "kimi-k2.7-code",
+    model: "kimi-k2.7-code",
+    provider: "moonshot",
+  };
   const first = responsesToChatRequest(
     {
-      model: "deepseek-v4-pro",
+      model: "kimi-k2.7-code",
       input: "run pwd",
       tools: [
         {
@@ -501,7 +507,7 @@ test("previous_response_id restores assistant tool calls before tool output", ()
         },
       ],
     },
-    route,
+    chatRoute,
     history,
   );
 
@@ -526,7 +532,7 @@ test("previous_response_id restores assistant tool calls before tool output", ()
       },
     ],
   };
-  const response = chatResponseToResponse(chat, "deepseek-v4-pro", first.toolContext);
+  const response = chatResponseToResponse(chat, "kimi-k2.7-code", first.toolContext);
   history.record(response.id, [
     ...first.messagesForHistory,
     assistantHistoryMessageFromChat(chat),
@@ -534,7 +540,7 @@ test("previous_response_id restores assistant tool calls before tool output", ()
 
   const second = responsesToChatRequest(
     {
-      model: "deepseek-v4-pro",
+      model: "kimi-k2.7-code",
       previous_response_id: response.id,
       input: [
         {
@@ -545,7 +551,7 @@ test("previous_response_id restores assistant tool calls before tool output", ()
       ],
       tools: first.body.tools,
     },
-    route,
+    chatRoute,
     history,
   );
 
@@ -740,7 +746,7 @@ test("interactive plugin detection only uses the current user turn", () => {
     history,
   );
 
-  assert.equal(converted.body.tool_choice, "auto");
+  assert.equal(converted.body.tool_choice, undefined);
 });
 
 test("interactive plugin detection ignores older transcript messages", () => {
@@ -768,7 +774,7 @@ test("interactive plugin detection ignores older transcript messages", () => {
     new ResponseHistory(),
   );
 
-  assert.equal(converted.body.tool_choice, "auto");
+  assert.equal(converted.body.tool_choice, undefined);
 });
 
 test("interactive plugin detection ignores older prompts during tool-output turns", () => {
@@ -799,7 +805,7 @@ test("interactive plugin detection ignores older prompts during tool-output turn
     new ResponseHistory(),
   );
 
-  assert.equal(converted.body.tool_choice, "auto");
+  assert.equal(converted.body.tool_choice, undefined);
 });
 
 test("DeepSeek reasoning_content is replayed only for DeepSeek routes", () => {
@@ -846,6 +852,69 @@ test("DeepSeek reasoning_content is replayed only for DeepSeek routes", () => {
     (message) => message.role === "assistant",
   );
   assert.equal("reasoning_content" in kimiAssistant, false);
+});
+
+test("DeepSeek flattens prior tool calls that lack reasoning_content", () => {
+  const history = new ResponseHistory();
+  history.record("resp_foreign_tool_call", [
+    { role: "user", content: "run pwd" },
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        {
+          id: "call_foreign_shell",
+          type: "function",
+          function: {
+            name: "shell_command",
+            arguments: '{"command":"pwd"}',
+          },
+        },
+      ],
+    },
+  ]);
+
+  const converted = responsesToChatRequest(
+    {
+      model: "deepseek-v4-pro",
+      previous_response_id: "resp_foreign_tool_call",
+      input: [
+        {
+          type: "function_call_output",
+          call_id: "call_foreign_shell",
+          output: "F:\\game_code\\router",
+        },
+      ],
+      tools: [
+        {
+          type: "function",
+          name: "shell_command",
+          description: "Run command",
+          parameters: {
+            type: "object",
+            properties: { command: { type: "string" } },
+            required: ["command"],
+          },
+        },
+      ],
+    },
+    { ...route, provider: "deepseek" },
+    history,
+  );
+
+  assert.equal(
+    converted.body.messages.some((message) => Array.isArray(message.tool_calls)),
+    false,
+  );
+  assert.equal(
+    converted.body.messages.some((message) => message.role === "tool"),
+    false,
+  );
+  const transcript = converted.body.messages
+    .map((message) => String(message.content || ""))
+    .join("\n");
+  assert.match(transcript, /shell_command/);
+  assert.match(transcript, /F:\\game_code\\router/);
 });
 
 test("namespace tools are flattened for chat providers", () => {
@@ -919,7 +988,68 @@ test("namespace tools keep unique names so MCP tools are not dropped", () => {
 test("chat namespace tool calls are returned with full Codex tool names", () => {
   const converted = responsesToChatRequest(
     {
-      input: "use node repl",
+      input: "use sample mcp",
+      tools: [
+        {
+          type: "namespace",
+          name: "mcp__sample__",
+          tools: [
+            {
+              type: "function",
+              name: "ping",
+              description: "Ping sample MCP.",
+              parameters: {
+                type: "object",
+                properties: {
+                  text: { type: "string" },
+                },
+                required: ["text"],
+              },
+            },
+          ],
+        },
+      ],
+    },
+    route,
+    new ResponseHistory(),
+  );
+
+  const response = chatResponseToResponse(
+    {
+      id: "chatcmpl_mcp",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                  id: "call_mcp",
+                  type: "function",
+                  function: {
+                    name: "mcp__sample__ping",
+                    arguments: '{"text":"hello"}',
+                  },
+                },
+              ],
+          },
+        },
+      ],
+    },
+    "deepseek-v4-pro",
+    converted.toolContext,
+  );
+
+  assert.equal(response.output[0].type, "function_call");
+  assert.equal(response.output[0].namespace, undefined);
+  assert.equal(response.output[0].name, "mcp__sample__ping");
+  assert.equal(response.output[0].arguments, '{"text":"hello"}');
+});
+
+test("suppressed Node REPL tool calls from chat providers are not returned to Codex", () => {
+  const converted = responsesToChatRequest(
+    {
+      input: "Chrome 打开 youtube",
       tools: [
         {
           type: "namespace",
@@ -947,7 +1077,7 @@ test("chat namespace tool calls are returned with full Codex tool names", () => 
 
   const response = chatResponseToResponse(
     {
-      id: "chatcmpl_mcp",
+      id: "chatcmpl_suppressed_mcp",
       choices: [
         {
           message: {
@@ -971,13 +1101,13 @@ test("chat namespace tool calls are returned with full Codex tool names", () => 
     converted.toolContext,
   );
 
-  assert.equal(response.output[0].type, "function_call");
-  assert.equal(response.output[0].namespace, undefined);
-  assert.equal(response.output[0].name, "mcp__node_repl__js");
-  assert.equal(response.output[0].arguments, '{"code":"1 + 1"}');
+  assert.equal(response.output.length, 1);
+  assert.equal(response.output[0].type, "message");
+  assert.match(response.output_text, /Node REPL/);
+  assert.match(response.output_text, /not available/);
 });
 
-test("namespace tool choice is flattened for chat providers", () => {
+test("Node REPL namespace tool choice is ignored for chat providers", () => {
   const converted = responsesToChatRequest(
     {
       input: "use node repl",
@@ -1011,31 +1141,29 @@ test("namespace tool choice is flattened for chat providers", () => {
     new ResponseHistory(),
   );
 
-  assert.deepEqual(converted.body.tool_choice, {
-    type: "function",
-    function: { name: "mcp__node_repl__js" },
-  });
+  assert.equal(converted.body.tool_choice, undefined);
+  assert.equal(converted.body.tools, undefined);
 });
 
 test("chat providers get guidance for flattened MCP tools", () => {
   const converted = responsesToChatRequest(
     {
-      input: "open Chrome",
+      input: "use sample MCP",
       tools: [
         {
           type: "namespace",
-          name: "mcp__node_repl__",
+          name: "mcp__sample__",
           tools: [
             {
               type: "function",
-              name: "js",
-              description: "Run JavaScript.",
+              name: "ping",
+              description: "Ping sample MCP.",
               parameters: {
                 type: "object",
                 properties: {
-                  code: { type: "string" },
+                  text: { type: "string" },
                 },
-                required: ["code"],
+                required: ["text"],
               },
             },
           ],
@@ -1047,16 +1175,13 @@ test("chat providers get guidance for flattened MCP tools", () => {
   );
 
   assert.equal(converted.body.messages[0].role, "system");
-  assert.match(converted.body.messages[0].content, /mcp__node_repl__js/);
-  assert.match(converted.body.messages[0].content, /bootstrap/);
-  assert.match(converted.body.messages[0].content, /official Chrome\/Computer Use plugin path/);
-  assert.match(converted.body.messages[0].content, /browser-client\.mjs/);
-  assert.match(converted.body.messages[0].content, /computer-use-client\.mjs/);
-  assert.match(converted.body.messages[0].content, /do not import @oai\/sky directly/);
-  assert.doesNotMatch(converted.body.messages[0].content, /Start-Process/);
+  assert.match(converted.body.messages[0].content, /flattened function names/);
+  assert.match(converted.body.messages[0].content, /Only call tools/);
+  assert.doesNotMatch(converted.body.messages[0].content, /mcp__node_repl__js/);
+  assert.equal(converted.body.tools[0].function.name, "mcp__sample__ping");
 });
 
-test("chrome and computer-use requests force the Node REPL bootstrap tool when available", () => {
+test("chrome and computer-use requests do not force the Node REPL bootstrap tool", () => {
   const converted = responsesToChatRequest(
     {
       input: "Chrome 打开 youtube",
@@ -1091,10 +1216,11 @@ test("chrome and computer-use requests force the Node REPL bootstrap tool when a
     new ResponseHistory(),
   );
 
-  assert.deepEqual(converted.body.tool_choice, {
-    type: "function",
-    function: { name: "mcp__node_repl__js" },
-  });
+  assert.equal(converted.body.tool_choice, "auto");
+  assert.equal(
+    converted.body.tools.some((tool) => tool.function?.name === "mcp__node_repl__js"),
+    false,
+  );
 });
 
 test("interactive plugin requests stay auto when Node REPL is not available", () => {
@@ -1115,6 +1241,61 @@ test("interactive plugin requests stay auto when Node REPL is not available", ()
   );
 
   assert.equal(converted.body.tool_choice, "auto");
+});
+
+test("chat providers do not expose Node REPL MCP tools for interactive plugin requests", () => {
+  const converted = responsesToChatRequest(
+    {
+      input: "Chrome 打开 youtube",
+      tools: [
+        {
+          type: "namespace",
+          name: "mcp__node_repl__",
+          tools: [
+            {
+              type: "function",
+              name: "js",
+              description: "Run JavaScript.",
+              parameters: {
+                type: "object",
+                properties: {
+                  code: { type: "string" },
+                },
+                required: ["code"],
+              },
+            },
+          ],
+        },
+        {
+          type: "function",
+          name: "shell_command",
+          description: "Run shell.",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+    },
+    route,
+    new ResponseHistory(),
+  );
+
+  assert.equal(converted.body.tool_choice, "auto");
+  assert.equal(
+    converted.body.tools.some((tool) => tool.function?.name === "mcp__node_repl__js"),
+    false,
+  );
+  assert.equal(
+    converted.body.tools.some((tool) => tool.function?.name === "shell_command"),
+    true,
+  );
+  assert.equal(
+    converted.body.messages.some((message) =>
+      String(message.content || "").includes("mcp__node_repl__js"),
+    ),
+    false,
+  );
+  assert.equal(converted.body.messages[0].role, "system");
+  assert.match(converted.body.messages[0].content, /shell|command/i);
+  assert.match(converted.body.messages[0].content, /chat-routed models/i);
 });
 
 test("git push tasks are not forced through Node REPL", () => {
@@ -1185,7 +1366,7 @@ test("ordinary computer or web questions are not forced through Node REPL", () =
       new ResponseHistory(),
     );
 
-    assert.equal(converted.body.tool_choice, "auto", input);
+    assert.equal(converted.body.tool_choice, undefined, input);
   }
 });
 
@@ -1372,7 +1553,7 @@ test("computer call items are kept as paired chat tool calls", () => {
         },
       ],
     },
-    route,
+    { ...route, provider: "moonshot", model: "kimi-k2.7-code" },
     new ResponseHistory(),
   );
 

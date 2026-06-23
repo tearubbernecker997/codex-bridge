@@ -226,6 +226,9 @@ function appendResponseTool(context, tool, namespace = "") {
     return;
   }
   const responseName = namespacedToolName(fn.name, namespace);
+  if (shouldSuppressChatTool(context, responseName)) {
+    return;
+  }
   const chatName = chatNameForResponseName(context, responseName);
   if (tool.type === "computer_use") {
     context.specialToolTypes.set(responseName, "computer_call");
@@ -242,6 +245,11 @@ function appendResponseTool(context, tool, namespace = "") {
       }),
     },
   });
+}
+
+function shouldSuppressChatTool(context, responseName) {
+  const routeApi = String(context.route?.api || "").toLowerCase();
+  return routeApi === "chat_completions" && responseName === "mcp__node_repl__js";
 }
 
 function chatToolParameters(context, parameters) {

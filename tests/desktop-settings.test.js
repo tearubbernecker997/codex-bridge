@@ -579,6 +579,19 @@ test("image generation provider can be configured per model", () => {
   });
 });
 
+test("legacy official image generation overrides are ignored for non OpenAI models", () => {
+  const rootDir = makeTempProject();
+  saveSelection(rootDir, ["deepseek-v4-pro"]);
+  saveModelImageGenerationOverride(rootDir, "deepseek-v4-pro", {
+    mode: "official",
+  });
+
+  const config = buildRouterConfigFromSelection(rootDir, MODE_HYBRID);
+  assert.equal(config.models[0].imageGeneration.mode, "off");
+  assert.equal(config.models[0].imageGeneration.enabled, false);
+  assert.equal(config.models[0].imageGeneration.apiKeyEnv, "");
+});
+
 test("legacy false image overrides do not disable built-in vision presets", () => {
   const rootDir = makeTempProject();
   const capabilitiesPath = path.join(rootDir, "config", "model-capabilities.json");

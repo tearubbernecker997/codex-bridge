@@ -1994,18 +1994,26 @@ function routeForSelectedModel(model, slot, priority, imageGenerationOverrides =
 
 function imageGenerationForModel(model = {}, override) {
   if (override) {
+    const overrideMode = String(override.mode || "").trim().toLowerCase();
+    if (overrideMode === "official" && !modelAllowsOfficialImageGeneration(model)) {
+      return normalizeImageGenerationSettings({ mode: "off" });
+    }
     return normalizeImageGenerationSettings(override);
   }
   return normalizeImageGenerationSettings(defaultImageGenerationForModel(model));
 }
 
 function defaultImageGenerationForModel(model = {}) {
-  const providerId = String(model.providerId || model.provider || "").toLowerCase();
-  const authMode = String(model.authMode || "").toLowerCase();
-  if (providerId === "codex" || providerId === "openai" || authMode === "codex_openai") {
+  if (modelAllowsOfficialImageGeneration(model)) {
     return { mode: "official" };
   }
   return { mode: "off" };
+}
+
+function modelAllowsOfficialImageGeneration(model = {}) {
+  const providerId = String(model.providerId || model.provider || "").toLowerCase();
+  const authMode = String(model.authMode || "").toLowerCase();
+  return providerId === "codex" || providerId === "openai" || authMode === "codex_openai";
 }
 
 function normalizeImageGenerationSettings(input = {}) {

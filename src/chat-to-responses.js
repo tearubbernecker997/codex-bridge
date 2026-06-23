@@ -10,7 +10,7 @@ export function chatResponseToResponse(chat, requestedModel, toolContext, option
   const message = choice.message || {};
   const id = responseIdFromChat(chat?.id);
   const output = [];
-  const text = visibleMessageText(message, options);
+  let text = visibleMessageText(message, options);
 
   if (text) {
     output.push({
@@ -29,6 +29,26 @@ export function chatResponseToResponse(chat, requestedModel, toolContext, option
   }
 
   for (const toolCall of message.tool_calls || []) {
+    const suppressedMessage = suppressedToolCallMessage(toolCall, toolContext);
+    if (suppressedMessage) {
+      if (!text) {
+        text = suppressedMessage;
+        output.push({
+          id: `msg_${stableFragment(id)}`,
+          type: "message",
+          role: "assistant",
+          status: "completed",
+          content: [
+            {
+              type: "output_text",
+              text,
+              annotations: [],
+            },
+          ],
+        });
+      }
+      continue;
+    }
     output.push(responseToolCallFromChat(toolCall, toolContext));
   }
 
@@ -45,6 +65,21 @@ export function chatResponseToResponse(chat, requestedModel, toolContext, option
     incomplete_details: null,
     usage: responseUsage(chat?.usage),
   };
+}
+
+function suppressedToolCallMessage(toolCall, toolContext) {
+  const name = toolCall?.function?.name || toolCall?.name || "";
+  if (name !== "mcp__node_repl__js") {
+    return "";
+  }
+  if (toolContext?.chatToolNames?.has?.(name)) {
+    return "";
+  }
+  return (
+    "CodexBridge skipped the Node REPL tool call because Node REPL is not available " +
+    "for chat-routed models in this Codex Desktop session. Use a GPT subscription route " +
+    "for native Chrome/Computer Use, or use another available tool."
+  );
 }
 
 export function assistantHistoryMessageFromChat(chat) {

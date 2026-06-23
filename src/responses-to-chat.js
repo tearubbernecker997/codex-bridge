@@ -15,12 +15,12 @@ const OVERSIZED_IMAGE_PLACEHOLDER =
   "[image input omitted because it is too large for this chat provider]";
 const MCP_TOOL_GUIDANCE =
   "CodexBridge tool guidance: MCP namespace tools are exposed as flattened function names. " +
-  "If a Codex skill mentions the Node REPL js tool, call mcp__node_repl__js directly and run the plugin bootstrap through that tool; " +
-  "empty MCP resource/resource-template lists do not mean the tool is unavailable. " +
-  "For Chrome, Browser, and Computer Use tasks, the official Chrome/Computer Use plugin path is the Node REPL bootstrap path. " +
-  "For Chrome, follow the skill path that imports scripts/browser-client.mjs through mcp__node_repl__js. " +
-  "For Computer Use, follow the skill path that imports scripts/computer-use-client.mjs through mcp__node_repl__js; do not import @oai/sky directly. " +
-  "Do not claim Node REPL is unavailable while mcp__node_repl__js is listed, and do not use shell or PowerShell fallbacks unless that tool is absent or the user explicitly asks for a manual fallback.";
+  "Only call tools that are present in this request's tools list. " +
+  "If an MCP tool call returns unsupported call, do not retry that same tool repeatedly; use another available tool or explain the limitation.";
+const INTERACTIVE_CHAT_FALLBACK_GUIDANCE =
+  "CodexBridge interactive-tool guidance: Native Chrome and Computer Use plugins require the GPT/OpenAI Responses route. " +
+  "On chat-routed models, use any listed shell or command tools to complete browser/app tasks when possible. " +
+  "Do not claim all tools are unavailable if another listed tool can do the work.";
 const COMMAND_TOOL_GUIDANCE =
   "CodexBridge command guidance: when the user explicitly asks you to run tests, commit, push, or publish " +
   "and a command or shell tool is available, call that tool and report the exact command output. " +
@@ -99,6 +99,8 @@ export function responseRequestToChatSourceMessages(request, route, history) {
   messages.push(...priorMessages, ...currentMessages);
   const sourceMessages = sanitizeMessagesForRoute(normalizeToolCallPairs(messages, {
     flattenToolCalls: shouldFlattenToolCallHistory(route),
+    flattenToolCallsWithoutReasoningContent:
+      shouldFlattenToolCallsWithoutReasoningContent(route),
   }), route);
   return { messages: sourceMessages, toolContext };
 }
@@ -398,10 +400,14 @@ function toolGuidanceFromContext(toolContext, request = {}) {
     name.includes("browser") ||
     name.includes("chrome")
   );
+  const needsInteractiveFallbackGuidance =
+    requestMentionsInteractivePluginWork(request) &&
+    !chatNameForTool(toolContext, "mcp__node_repl__js");
   const needsCommandGuidance =
     names.some(isCommandToolName) && requestMentionsCommandWork(request);
   return [
     needsGuidance ? MCP_TOOL_GUIDANCE : "",
+    needsInteractiveFallbackGuidance ? INTERACTIVE_CHAT_FALLBACK_GUIDANCE : "",
     needsCommandGuidance ? COMMAND_TOOL_GUIDANCE : "",
   ]
     .filter(Boolean)
@@ -519,6 +525,9 @@ function chatToolChoice(toolChoice, toolContext, request = {}) {
     toolChoice.namespace || toolChoice.function?.namespace,
   );
   const chatName = toolContext.responseNameToChatName.get(responseName) || responseName;
+  if (!toolContext.chatToolNames.has(chatName)) {
+    return "auto";
+  }
   return { type: "function", function: { name: chatName } };
 }
 
@@ -655,6 +664,10 @@ function shouldFlattenToolCallHistory(route = {}) {
   }
 }
 
+function shouldFlattenToolCallsWithoutReasoningContent(route = {}) {
+  return routeSupportsDeepSeekReasoningContent(route);
+}
+
 function trimMessagesToRouteContext(messages, route = {}) {
   const maxTokens = maxChatContextInputTokens(route);
   if (!maxTokens || estimatedMessagesTokens(messages) <= maxTokens) {
@@ -719,7 +732,11 @@ function trimMessagesToRouteContext(messages, route = {}) {
     ...(trimmed ? [trimNotice] : []),
     ...preserved.reverse(),
   ];
-  return normalizeToolCallPairs(result);
+  return normalizeToolCallPairs(result, {
+    flattenToolCalls: shouldFlattenToolCallHistory(route),
+    flattenToolCallsWithoutReasoningContent:
+      shouldFlattenToolCallsWithoutReasoningContent(route),
+  });
 }
 
 function maxChatContextInputTokens(route = {}) {
@@ -876,6 +893,9 @@ function trimTextForContextTokens(text, maxTokens) {
 function normalizeToolCallPairs(messages, options = {}) {
   const normalized = [];
   const flattenToolCalls = Boolean(options.flattenToolCalls);
+  const flattenToolCallsWithoutReasoningContent = Boolean(
+    options.flattenToolCallsWithoutReasoningContent,
+  );
 
   for (let index = 0; index < messages.length;) {
     const message = messages[index];
@@ -900,8 +920,12 @@ function normalizeToolCallPairs(messages, options = {}) {
       const complete =
         expectedIds.size > 0 &&
         [...expectedIds].every((toolCallId) => actualIds.has(toolCallId));
+      const shouldFlattenPair =
+        flattenToolCalls ||
+        (flattenToolCallsWithoutReasoningContent &&
+          !messageHasReasoningContent(message));
 
-      if (complete && flattenToolCalls) {
+      if (complete && shouldFlattenPair) {
         normalized.push(...flattenToolCallPairAsText(message, toolMessages));
       } else if (complete) {
         normalized.push(message, ...toolMessages);
@@ -981,6 +1005,10 @@ function assistantTextOnlyMessage(message) {
   }
   const { tool_calls, ...textOnly } = message;
   return textOnly;
+}
+
+function messageHasReasoningContent(message) {
+  return typeof message?.reasoning_content === "string" && message.reasoning_content !== "";
 }
 
 function orphanToolOutputMessage(message) {

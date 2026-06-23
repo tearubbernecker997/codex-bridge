@@ -31,7 +31,10 @@ export function shouldUseImageGenerationFallback(requestBody, route) {
   if (settings.mode !== "custom") {
     return false;
   }
-  return hasNativeImageGenerationTool(requestBody.tools);
+  return (
+    hasNativeImageGenerationTool(requestBody.tools) &&
+    toolChoiceSelectsImageGeneration(requestBody.tool_choice)
+  );
 }
 
 export async function proxyImageGenerationFallback(
@@ -281,6 +284,25 @@ function hasNativeImageGenerationTool(tools = []) {
     }
     return false;
   });
+}
+
+function toolChoiceSelectsImageGeneration(toolChoice) {
+  if (!toolChoice) {
+    return false;
+  }
+  if (typeof toolChoice === "string") {
+    return /image[_\s-]?generation|image[_\s-]?gen/i.test(toolChoice);
+  }
+  if (typeof toolChoice !== "object") {
+    return false;
+  }
+  const type = String(toolChoice.type || "").toLowerCase();
+  const name = String(toolChoice.name || toolChoice.function?.name || "").toLowerCase();
+  return (
+    type === "image_generation" ||
+    type === "image_generation_call" ||
+    /image[_\s-]?generation|image[_\s-]?gen/.test(name)
+  );
 }
 
 function imagePromptFromRequest(requestBody) {

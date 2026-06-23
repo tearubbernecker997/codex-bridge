@@ -167,7 +167,7 @@ test("server returns a local rate-limit response without retrying the provider",
   }
 });
 
-test("server routes Chrome plugin requests to Node REPL for chat providers", async () => {
+test("server suppresses unexpected Node REPL tool calls from chat providers", async () => {
   const chatBodies = [];
   const upstream = http.createServer(async (req, res) => {
     assert.equal(req.url, "/v1/chat/completions");
@@ -266,21 +266,22 @@ test("server routes Chrome plugin requests to Node REPL for chat providers", asy
       }),
     });
 
-    assert.equal(response.output[0].type, "function_call");
-    assert.equal(response.output[0].name, "mcp__node_repl__js");
+    assert.equal(response.output[0].type, "message");
+    assert.match(response.output_text, /Node REPL/);
   } finally {
     await close(router);
     await close(upstream);
   }
 
   assert.equal(chatBodies.length, 1);
-  assert.deepEqual(chatBodies[0].tool_choice, {
-    type: "function",
-    function: { name: "mcp__node_repl__js" },
-  });
+  assert.equal(chatBodies[0].tool_choice, "auto");
+  assert.equal(
+    chatBodies[0].tools.some((tool) => tool.function?.name === "mcp__node_repl__js"),
+    false,
+  );
 });
 
-test("server enforces Node REPL bootstrap when chat provider ignores Chrome tool choice", async () => {
+test("server does not enforce Node REPL bootstrap when chat provider answers directly", async () => {
   const upstream = http.createServer(async (req, res) => {
     assert.equal(req.url, "/v1/chat/completions");
     const chunks = [];
@@ -288,10 +289,11 @@ test("server enforces Node REPL bootstrap when chat provider ignores Chrome tool
       chunks.push(chunk);
     }
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    assert.deepEqual(body.tool_choice, {
-      type: "function",
-      function: { name: "mcp__node_repl__js" },
-    });
+    assert.equal(body.tool_choice, "auto");
+    assert.equal(
+      body.tools.some((tool) => tool.function?.name === "mcp__node_repl__js"),
+      false,
+    );
 
     res.writeHead(200, { "content-type": "application/json" });
     res.end(
@@ -373,17 +375,120 @@ test("server enforces Node REPL bootstrap when chat provider ignores Chrome tool
     });
 
     assert.equal(response.output.length, 1);
-    assert.equal(response.output[0].type, "function_call");
-    assert.equal(response.output[0].name, "mcp__node_repl__js");
-    assert.match(response.output[0].arguments, /browser-client\.mjs/);
-    assert.doesNotMatch(response.output_text, /PowerShell fallback/);
+    assert.equal(response.output[0].type, "message");
+    assert.match(response.output_text, /PowerShell fallback/);
   } finally {
     await close(router);
     await close(upstream);
   }
 });
 
-test("server replaces shell fallback tool calls for Computer Use requests", async () => {
+test("server does not force Node REPL bootstrap for chat interactive requests", async () => {
+  const chatBodies = [];
+  const upstream = http.createServer(async (req, res) => {
+    assert.equal(req.url, "/v1/chat/completions");
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    chatBodies.push(body);
+
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        id: "chatcmpl_chrome_no_force",
+        object: "chat.completion",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "Chrome tool bootstrap is not available in this chat route.",
+            },
+          },
+        ],
+      }),
+    );
+  });
+
+  await listen(upstream);
+  const upstreamUrl = serverUrl(upstream);
+  const router = createRouterServer({
+    host: "127.0.0.1",
+    port: 0,
+    authToken: "router-token",
+    defaultModel: "deepseek-v4-pro",
+    models: [
+      {
+        id: "deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        api: "chat_completions",
+        baseUrl: `${upstreamUrl}/v1`,
+        model: "deepseek-v4-pro",
+        apiKey: "upstream-key",
+      },
+    ],
+  });
+
+  await listen(router);
+  const baseUrl = serverUrl(router);
+
+  try {
+    const response = await fetchJson(`${baseUrl}/v1/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer router-token",
+      },
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        input: "Chrome 打开 youtube",
+        tools: [
+          {
+            type: "namespace",
+            name: "mcp__node_repl__",
+            tools: [
+              {
+                type: "function",
+                name: "js",
+                description: "Run JavaScript.",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    code: { type: "string" },
+                  },
+                  required: ["code"],
+                },
+              },
+            ],
+          },
+          {
+            type: "function",
+            name: "shell_command",
+            description: "Run shell.",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.output.length, 1);
+    assert.equal(response.output[0].type, "message");
+    assert.equal(response.output_text, "Chrome tool bootstrap is not available in this chat route.");
+  } finally {
+    await close(router);
+    await close(upstream);
+  }
+
+  assert.equal(chatBodies.length, 1);
+  assert.equal(chatBodies[0].tool_choice, "auto");
+  assert.equal(
+    chatBodies[0].tools.some((tool) => tool.function?.name === "mcp__node_repl__js"),
+    false,
+  );
+});
+
+test("server preserves executable shell tool calls for Computer Use requests", async () => {
   const upstream = http.createServer(async (req, res) => {
     assert.equal(req.url, "/v1/chat/completions");
     res.writeHead(200, { "content-type": "application/json" });
@@ -476,9 +581,8 @@ test("server replaces shell fallback tool calls for Computer Use requests", asyn
 
     assert.equal(response.output.length, 1);
     assert.equal(response.output[0].type, "function_call");
-    assert.equal(response.output[0].name, "mcp__node_repl__js");
-    assert.match(response.output[0].arguments, /computer-use-client\.mjs/);
-    assert.doesNotMatch(response.output[0].arguments, /Start-Process/);
+    assert.equal(response.output[0].name, "shell_command");
+    assert.match(response.output[0].arguments, /Start-Process notepad/);
   } finally {
     await close(router);
     await close(upstream);
@@ -585,6 +689,7 @@ test("chat routes can use a per-route custom image generation provider", async (
         model: "deepseek-v4-pro",
         input: "generate an image of a small app icon",
         tools: [{ type: "image_generation" }],
+        tool_choice: { type: "image_generation" },
       }),
     });
 
@@ -665,6 +770,7 @@ test("responses routes can override native image generation with a custom provid
         model: "gpt-5.5",
         input: "generate an image of a tiny bridge icon",
         tools: [{ type: "image_generation" }],
+        tool_choice: { type: "image_generation" },
       }),
     });
 
@@ -768,8 +874,46 @@ test("image fallback ignores image analysis prompts", () => {
   assert.equal(
     shouldUseImageGenerationFallback(
       {
+        input: "write a short joke",
+        tools: [{ type: "image_generation" }],
+      },
+      {
+        api: "chat_completions",
+        provider: "deepseek",
+        imageGeneration: {
+          mode: "custom",
+          baseUrl: "https://images.example/v1",
+          model: "image-model",
+          apiKeyEnv: "IMAGE_KEY",
+        },
+      },
+    ),
+    false,
+  );
+  assert.equal(
+    shouldUseImageGenerationFallback(
+      {
         input: "generate an image of a bridge",
         tools: [{ type: "image_generation" }],
+      },
+      {
+        api: "responses",
+        imageGeneration: {
+          mode: "custom",
+          baseUrl: "https://images.example/v1",
+          model: "image-model",
+          apiKeyEnv: "IMAGE_KEY",
+        },
+      },
+    ),
+    false,
+  );
+  assert.equal(
+    shouldUseImageGenerationFallback(
+      {
+        input: "generate an image of a bridge",
+        tools: [{ type: "image_generation" }],
+        tool_choice: { type: "image_generation" },
       },
       {
         api: "responses",
@@ -794,6 +938,7 @@ test("image fallback ignores image analysis prompts", () => {
             tools: [{ type: "image_generation" }],
           },
         ],
+        tool_choice: "image_generation",
       },
       {
         api: "chat_completions",
@@ -808,6 +953,99 @@ test("image fallback ignores image analysis prompts", () => {
     ),
     true,
   );
+});
+
+test("custom image generation does not intercept interactive computer requests", async () => {
+  const previousEnv = snapshotEnv(["CUSTOM_IMAGE_API_KEY"]);
+  delete process.env.CUSTOM_IMAGE_API_KEY;
+  let upstreamCalls = 0;
+  const upstream = http.createServer(async (req, res) => {
+    assert.equal(req.url, "/v1/chat/completions");
+    upstreamCalls += 1;
+    const chunks = [];
+    for await (const chunk of req) {
+      chunks.push(chunk);
+    }
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    assert.match(body.messages.at(-1).content, /\u8bb0\u4e8b\u672c/);
+
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        id: "chatcmpl_computer_request",
+        object: "chat.completion",
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "I can use a shell command to open Notepad.",
+            },
+          },
+        ],
+      }),
+    );
+  });
+
+  await listen(upstream);
+  const upstreamUrl = serverUrl(upstream);
+  const router = createRouterServer({
+    host: "127.0.0.1",
+    port: 0,
+    authToken: "router-token",
+    defaultModel: "deepseek-v4-pro",
+    models: [
+      {
+        id: "deepseek-v4-pro",
+        displayName: "DeepSeek V4 Pro",
+        api: "chat_completions",
+        baseUrl: `${upstreamUrl}/v1`,
+        model: "deepseek-v4-pro",
+        apiKey: "deepseek-key",
+        imageGeneration: {
+          enabled: true,
+          mode: "custom",
+          displayName: "Custom Image API",
+          baseUrl: "https://images.example/v1",
+          endpoint: "/images/generations",
+          model: "custom-image-v1",
+          apiKeyEnv: "CUSTOM_IMAGE_API_KEY",
+        },
+      },
+    ],
+  });
+
+  await listen(router);
+  const baseUrl = serverUrl(router);
+
+  try {
+    const response = await fetchJson(`${baseUrl}/v1/responses`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: "Bearer router-token",
+      },
+      body: JSON.stringify({
+        model: "deepseek-v4-pro",
+        input: "\u7535\u8111 \u6253\u5f00\u8bb0\u4e8b\u672c\u5728\u91cc\u9762\u5199\u4e2a\u7b11\u8bdd",
+        tools: [
+          { type: "image_generation" },
+          {
+            type: "function",
+            name: "shell_command",
+            description: "Run shell.",
+            parameters: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    });
+
+    assert.equal(response.output_text, "I can use a shell command to open Notepad.");
+    assert.equal(upstreamCalls, 1);
+  } finally {
+    restoreEnv(previousEnv);
+    await close(router);
+    await close(upstream);
+  }
 });
 
 test("server logs every incoming request before route handling", async () => {
@@ -2337,7 +2575,7 @@ test("responses route history is available after switching to a chat-completions
   assert.match(chatText, /what did GPT say/);
 });
 
-test("responses route preserves GPT tool calls before switching tool output to a chat-completions model", async () => {
+test("responses route flattens GPT tool calls before switching tool output to DeepSeek", async () => {
   const chatBodies = [];
   const upstream = http.createServer(async (req, res) => {
     const chunks = [];
@@ -2373,22 +2611,28 @@ test("responses route preserves GPT tool calls before switching tool output to a
     if (req.url === "/v1/chat/completions") {
       const body = JSON.parse(bodyText);
       chatBodies.push(body);
-      const assistantIndex = body.messages.findIndex(
+      const hasStructuredToolCalls = body.messages.some(
         (message) =>
           message.role === "assistant" &&
           Array.isArray(message.tool_calls) &&
           message.tool_calls.some((toolCall) => toolCall.id === "call_shell"),
       );
-      const toolIndex = body.messages.findIndex(
+      const hasToolRoleMessage = body.messages.some(
         (message) => message.role === "tool" && message.tool_call_id === "call_shell",
       );
-      if (assistantIndex < 0 || toolIndex !== assistantIndex + 1) {
+      const transcript = JSON.stringify(body.messages);
+      if (
+        hasStructuredToolCalls ||
+        hasToolRoleMessage ||
+        !transcript.includes("shell_command") ||
+        !transcript.includes("F:\\\\game_code\\\\router")
+      ) {
         res.writeHead(400, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
             error: {
               message:
-                "assistant tool call must be followed by the matching tool output",
+                "GPT tool call history was not flattened for DeepSeek",
             },
           }),
         );
