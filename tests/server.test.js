@@ -2633,7 +2633,8 @@ test("responses route flattens GPT tool calls before switching tool output to De
       if (
         hasStructuredToolCalls ||
         hasToolRoleMessage ||
-        !transcript.includes("shell_command") ||
+        transcript.includes("Assistant requested tool calls") ||
+        (transcript.includes("shell_command") && transcript.includes("\\\"command\\\":\\\"pwd\\\"")) ||
         !transcript.includes("F:\\\\game_code\\\\router")
       ) {
         res.writeHead(400, { "content-type": "application/json" });

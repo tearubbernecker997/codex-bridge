@@ -20,6 +20,9 @@ const MCP_TOOL_GUIDANCE =
 const INTERACTIVE_CHAT_FALLBACK_GUIDANCE =
   "CodexBridge interactive-tool guidance: Native Chrome and Computer Use plugins require the GPT/OpenAI Responses route. " +
   "On chat-routed models, use any listed shell or command tools to complete browser/app tasks when possible. " +
+  "For simple browser requests, open a browser URL by immediately calling the command tool with an OS/browser launch command. " +
+  "For Computer Use requests on chat-routed models, use command tools to launch apps or scripts directly. " +
+  "Do not call Get-Content or Get-ChildItem to read Browser, Chrome, or Computer Use SKILL.md files first. " +
   "Do not read Browser, Chrome, or Computer Use skill files to bootstrap Node REPL on chat-routed models; those native plugin instructions do not apply here. " +
   "Do not mention Node REPL availability unless the user explicitly asks about it. " +
   "Do not claim all tools are unavailable if another listed tool can do the work.";
@@ -970,10 +973,7 @@ function normalizeToolCallPairs(messages, options = {}) {
 
 function flattenToolCallPairAsText(message, toolMessages) {
   const flattened = [];
-  const toolCallText = toolCallsToHistorySummary(message.tool_calls);
-  const assistantText = [contentToText(message.content), toolCallText]
-    .filter(Boolean)
-    .join("\n\n");
+  const assistantText = contentToText(message.content);
   if (assistantText) {
     flattened.push({
       role: "assistant",
@@ -990,24 +990,6 @@ function flattenToolCallPairAsText(message, toolMessages) {
     });
   }
   return flattened;
-}
-
-function toolCallsToHistorySummary(toolCalls) {
-  const names = [];
-  for (const toolCall of toolCalls || []) {
-    const name = toolCall?.function?.name || toolCall?.name || "";
-    if (name && !names.includes(name)) {
-      names.push(name);
-    }
-  }
-  if (names.length === 0) {
-    return "";
-  }
-  return (
-    "Earlier assistant tool use was summarized for provider compatibility. " +
-    `Tools used earlier: ${names.join(", ")}. ` +
-    "Do not quote this summary as a new tool call; use the current tools list for any new action."
-  );
 }
 
 function hasToolCalls(message) {

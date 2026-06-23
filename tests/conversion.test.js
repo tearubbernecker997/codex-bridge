@@ -622,14 +622,12 @@ test("Gemini chat conversion flattens prior tool calls because thought signature
     converted.body.messages.some((message) => message.role === "tool"),
     false,
   );
-  assert.match(
-    converted.body.messages.map((message) => String(message.content || "")).join("\n"),
-    /shell_command/,
-  );
-  assert.match(
-    converted.body.messages.map((message) => String(message.content || "")).join("\n"),
-    /F:\\game_code\\router/,
-  );
+  const transcript = converted.body.messages
+    .map((message) => String(message.content || ""))
+    .join("\n");
+  assert.doesNotMatch(transcript, /Assistant requested tool calls/);
+  assert.doesNotMatch(transcript, /shell_command.*"command":"pwd"/);
+  assert.match(transcript, /F:\\game_code\\router/);
   assert.equal(converted.body.tools.length, 1);
 });
 
@@ -854,7 +852,7 @@ test("DeepSeek reasoning_content is replayed only for DeepSeek routes", () => {
   assert.equal("reasoning_content" in kimiAssistant, false);
 });
 
-test("DeepSeek summarizes prior tool calls without teaching the model fake tool syntax", () => {
+test("DeepSeek flattens prior tool results without teaching the model fake tool syntax", () => {
   const history = new ResponseHistory();
   history.record("resp_foreign_tool_call", [
     { role: "user", content: "run pwd" },
@@ -916,6 +914,58 @@ test("DeepSeek summarizes prior tool calls without teaching the model fake tool 
   assert.doesNotMatch(transcript, /Assistant requested tool calls/);
   assert.doesNotMatch(transcript, /shell_command.*"command":"pwd"/);
   assert.match(transcript, /F:\\game_code\\router/);
+});
+
+test("chat routes do not expose compatibility tool summaries as visible assistant text", () => {
+  const history = new ResponseHistory();
+  history.record("resp_shell_tool_call", [
+    { role: "user", content: "Open Chrome" },
+    {
+      role: "assistant",
+      content: "I will use an available command tool.",
+      tool_calls: [
+        {
+          id: "call_shell",
+          type: "function",
+          function: {
+            name: "shell_command",
+            arguments: "{\"command\":\"Start-Process chrome\"}",
+          },
+        },
+      ],
+    },
+    {
+      role: "tool",
+      tool_call_id: "call_shell",
+      content: "Chrome started",
+    },
+  ]);
+
+  const converted = responsesToChatRequest(
+    {
+      previous_response_id: "resp_shell_tool_call",
+      input: "continue",
+      tools: [
+        {
+          type: "function",
+          name: "shell_command",
+          description: "Run shell.",
+          parameters: { type: "object", properties: {} },
+        },
+      ],
+    },
+    route,
+    history,
+  );
+
+  const transcript = converted.body.messages
+    .map((message) => String(message.content || ""))
+    .join("\n");
+  assert.doesNotMatch(transcript, /Earlier assistant tool use/);
+  assert.doesNotMatch(transcript, /Tools used earlier/);
+  assert.doesNotMatch(transcript, /Assistant requested tool calls/);
+  assert.match(transcript, /I will use an available command tool/);
+  assert.match(transcript, /Chrome started/);
 });
 
 test("namespace tools are flattened for chat providers", () => {
@@ -1306,6 +1356,8 @@ test("chat providers do not expose Node REPL MCP tools for interactive plugin re
   assert.equal(converted.body.messages[0].role, "system");
   assert.match(converted.body.messages[0].content, /shell|command/i);
   assert.match(converted.body.messages[0].content, /chat-routed models/i);
+  assert.match(converted.body.messages[0].content, /Do not call Get-Content or Get-ChildItem/i);
+  assert.match(converted.body.messages[0].content, /open a browser URL/i);
 });
 
 test("git push tasks are not forced through Node REPL", () => {
