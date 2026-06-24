@@ -916,6 +916,77 @@ test("DeepSeek flattens prior tool results without teaching the model fake tool 
   assert.match(transcript, /F:\\game_code\\router/);
 });
 
+test("DeepSeek groups flattened multi-tool outputs into one continuation message", () => {
+  const history = new ResponseHistory();
+  history.record("resp_multi_tool_call", [
+    { role: "user", content: "read install script and logs" },
+    {
+      role: "assistant",
+      content: "I will inspect the files.",
+      tool_calls: [
+        {
+          id: "call_script",
+          type: "function",
+          function: {
+            name: "shell_command",
+            arguments: '{"command":"Get-Content install.ps1"}',
+          },
+        },
+        {
+          id: "call_log",
+          type: "function",
+          function: {
+            name: "shell_command",
+            arguments: '{"command":"Get-Content install.log"}',
+          },
+        },
+      ],
+    },
+  ]);
+
+  const converted = responsesToChatRequest(
+    {
+      model: "deepseek-v4-pro",
+      previous_response_id: "resp_multi_tool_call",
+      input: [
+        {
+          type: "function_call_output",
+          call_id: "call_script",
+          output: "install script content",
+        },
+        {
+          type: "function_call_output",
+          call_id: "call_log",
+          output: "install log content",
+        },
+      ],
+      tools: [
+        {
+          type: "function",
+          name: "shell_command",
+          description: "Run command",
+          parameters: {
+            type: "object",
+            properties: { command: { type: "string" } },
+            required: ["command"],
+          },
+        },
+      ],
+    },
+    { ...route, provider: "deepseek" },
+    history,
+  );
+
+  const resultMessages = converted.body.messages.filter((message) =>
+    String(message.content || "").includes("Previous completed tool results"),
+  );
+  assert.equal(resultMessages.length, 1);
+  assert.match(resultMessages[0].content, /call_script/);
+  assert.match(resultMessages[0].content, /install script content/);
+  assert.match(resultMessages[0].content, /call_log/);
+  assert.match(resultMessages[0].content, /install log content/);
+});
+
 test("chat routes do not expose compatibility tool summaries as visible assistant text", () => {
   const history = new ResponseHistory();
   history.record("resp_shell_tool_call", [

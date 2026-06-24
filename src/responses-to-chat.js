@@ -981,12 +981,18 @@ function flattenToolCallPairAsText(message, toolMessages) {
     });
   }
 
+  const toolResults = [];
   for (const toolMessage of toolMessages) {
     const output = contentToText(toolMessage.content);
     const id = toolMessage?.tool_call_id ? ` ${toolMessage.tool_call_id}` : "";
+    toolResults.push(`Result${id}:\n${output || "[empty output]"}`);
+  }
+  if (toolResults.length > 0) {
     flattened.push({
       role: "user",
-      content: `Previous tool result${id}:\n${output || "[empty output]"}`,
+      content:
+        "Previous completed tool results. These tools already ran; use the outputs below before deciding whether another tool call is needed.\n\n" +
+        toolResults.join("\n\n"),
     });
   }
   return flattened;
