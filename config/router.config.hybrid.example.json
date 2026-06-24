@@ -106,7 +106,7 @@
       "apiKeyEnv": "MOONSHOT_API_KEY",
       "contextWindow": 258400,
       "priority": 4,
-      "rpm": 6,
+      "rpm": 12,
       "inputModalities": [
         "text",
         "image"

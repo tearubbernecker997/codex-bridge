@@ -987,6 +987,51 @@ test("DeepSeek groups flattened multi-tool outputs into one continuation message
   assert.match(resultMessages[0].content, /install log content/);
 });
 
+test("chat routes group consecutive orphan tool outputs into one continuation message", () => {
+  const converted = responsesToChatRequest(
+    {
+      model: "deepseek-v4-pro",
+      input: [
+        {
+          type: "function_call_output",
+          call_id: "call_file",
+          output: "created test file",
+        },
+        {
+          type: "function_call_output",
+          call_id: "call_delete",
+          output: "deleted test file",
+        },
+      ],
+      tools: [
+        {
+          type: "function",
+          name: "shell_command",
+          description: "Run command",
+          parameters: {
+            type: "object",
+            properties: { command: { type: "string" } },
+            required: ["command"],
+          },
+        },
+      ],
+    },
+    { ...route, provider: "deepseek" },
+    new ResponseHistory(),
+  );
+
+  const resultMessages = converted.body.messages.filter((message) =>
+    String(message.content || "").includes(
+      "Previous completed tool results without matching assistant tool calls",
+    ),
+  );
+  assert.equal(resultMessages.length, 1);
+  assert.match(resultMessages[0].content, /call_file/);
+  assert.match(resultMessages[0].content, /created test file/);
+  assert.match(resultMessages[0].content, /call_delete/);
+  assert.match(resultMessages[0].content, /deleted test file/);
+});
+
 test("chat routes do not expose compatibility tool summaries as visible assistant text", () => {
   const history = new ResponseHistory();
   history.record("resp_shell_tool_call", [
@@ -1061,6 +1106,30 @@ test("chat provider replies do not expose internal compatibility summaries", () 
   assert.equal(response.output.length, 0);
   assert.doesNotMatch(JSON.stringify(response), /Earlier assistant tool use/);
   assert.doesNotMatch(JSON.stringify(response), /Do not quote this summary/);
+});
+
+test("chat provider replies do not expose orphan tool-output compatibility summaries", () => {
+  const response = chatResponseToResponse(
+    {
+      id: "chatcmpl_orphan_summary",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content:
+              "Previous completed tool results without matching assistant tool calls. These tools already ran; use the outputs below before deciding whether another tool call is needed.\n\nResult call_file:\ncreated test file",
+          },
+        },
+      ],
+    },
+    "deepseek-v4-pro",
+    { chatToolNames: new Set(["shell_command"]) },
+  );
+
+  assert.equal(response.output_text, "");
+  assert.equal(response.output.length, 0);
+  assert.doesNotMatch(JSON.stringify(response), /Previous completed tool results/);
+  assert.doesNotMatch(JSON.stringify(response), /created test file/);
 });
 
 test("namespace tools are flattened for chat providers", () => {

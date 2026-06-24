@@ -1,4 +1,5 @@
 const DEFAULT_429_COOLDOWN_MS = 30_000;
+const MAX_429_COOLDOWN_MS = 120_000;
 
 const states = new Map();
 
@@ -41,7 +42,10 @@ export function markRouteRateLimited(route = {}, headers) {
     Number(route.cooldownMs || 0),
     DEFAULT_429_COOLDOWN_MS,
   );
-  const cooldownMs = headerCooldownMs || fallbackCooldownMs;
+  const cooldownMs = clampCooldownMs(
+    headerCooldownMs || fallbackCooldownMs,
+    route,
+  );
   const cooldownUntil = clock.now() + Math.max(0, cooldownMs);
   state.cooldownUntil = Math.max(state.cooldownUntil || 0, cooldownUntil);
 }
@@ -106,6 +110,20 @@ function routeIntervalMs(route = {}) {
     return 0;
   }
   return Math.ceil(60_000 / rpm);
+}
+
+function clampCooldownMs(value, route = {}) {
+  const cooldownMs = Math.max(0, Number(value || 0));
+  const maxCooldownMs = maxCooldownMsForRoute(route);
+  return Math.min(cooldownMs, maxCooldownMs);
+}
+
+function maxCooldownMsForRoute(route = {}) {
+  const configured = Number(route.maxCooldownMs || route.rateLimit?.maxCooldownMs || 0);
+  if (Number.isFinite(configured) && configured > 0) {
+    return configured;
+  }
+  return MAX_429_COOLDOWN_MS;
 }
 
 function stateForRoute(route = {}) {

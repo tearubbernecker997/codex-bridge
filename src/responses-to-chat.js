@@ -958,10 +958,18 @@ function normalizeToolCallPairs(messages, options = {}) {
     }
 
     if (message?.role === "tool") {
-      const orphanToolOutput = orphanToolOutputMessage(message);
+      const orphanToolMessages = [];
+      let nextIndex = index;
+      while (nextIndex < messages.length && messages[nextIndex]?.role === "tool") {
+        orphanToolMessages.push(messages[nextIndex]);
+        nextIndex += 1;
+      }
+      const orphanToolOutput = orphanToolOutputsMessage(orphanToolMessages);
       if (orphanToolOutput) {
         normalized.push(orphanToolOutput);
       }
+      index = nextIndex;
+      continue;
     } else {
       normalized.push(message);
     }
@@ -1018,15 +1026,24 @@ function messageHasReasoningContent(message) {
   return typeof message?.reasoning_content === "string" && message.reasoning_content !== "";
 }
 
-function orphanToolOutputMessage(message) {
-  const content = contentToText(message?.content);
-  if (!content) {
+function orphanToolOutputsMessage(messages) {
+  const toolResults = [];
+  for (const message of messages) {
+    const content = contentToText(message?.content);
+    if (!content) {
+      continue;
+    }
+    const id = message?.tool_call_id ? ` ${message.tool_call_id}` : "";
+    toolResults.push(`Result${id}:\n${content}`);
+  }
+  if (toolResults.length === 0) {
     return null;
   }
-  const id = message?.tool_call_id ? ` ${message.tool_call_id}` : "";
   return {
     role: "user",
-    content: `Previous tool result${id} without its matching assistant tool call:\n${content}`,
+    content:
+      "Previous completed tool results without matching assistant tool calls. These tools already ran; use the outputs below before deciding whether another tool call is needed.\n\n" +
+      toolResults.join("\n\n"),
   };
 }
 

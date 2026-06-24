@@ -148,7 +148,8 @@ function isInternalBridgeDiagnosticText(text) {
     /Earlier assistant tool use was summarized for provider compatibility/i.test(value) ||
     /Do not quote this summary as a new tool call/i.test(value) ||
     /Assistant requested tool calls/i.test(value) ||
-    /Previous tool result .* without its matching assistant tool call/i.test(value)
+    /Previous tool result .* without its matching assistant tool call/i.test(value) ||
+    /Previous completed tool results without matching assistant tool calls/i.test(value)
   );
 }
 

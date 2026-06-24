@@ -133,9 +133,12 @@ button:disabled {
 }
 
 .main {
+  min-height: 0;
   height: 100vh;
-  padding: 28px;
-  overflow: auto;
+  padding: 28px 28px 56px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .topbar {
@@ -656,6 +659,7 @@ h3 {
 .model-pool {
   display: grid;
   gap: 16px;
+  overflow: visible;
 }
 
 .model-group {
