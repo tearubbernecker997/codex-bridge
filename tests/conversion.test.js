@@ -968,6 +968,30 @@ test("chat routes do not expose compatibility tool summaries as visible assistan
   assert.match(transcript, /Chrome started/);
 });
 
+test("chat provider replies do not expose internal compatibility summaries", () => {
+  const response = chatResponseToResponse(
+    {
+      id: "chatcmpl_internal_summary",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content:
+              "Earlier assistant tool use was summarized for provider compatibility. Tools used earlier: shell_command. Do not quote this summary as a new tool call; use the current tools list for any new action.",
+          },
+        },
+      ],
+    },
+    "deepseek-v4-pro",
+    { chatToolNames: new Set(["shell_command"]) },
+  );
+
+  assert.equal(response.output_text, "");
+  assert.equal(response.output.length, 0);
+  assert.doesNotMatch(JSON.stringify(response), /Earlier assistant tool use/);
+  assert.doesNotMatch(JSON.stringify(response), /Do not quote this summary/);
+});
+
 test("namespace tools are flattened for chat providers", () => {
   const converted = responsesToChatRequest(
     {
@@ -1152,10 +1176,175 @@ test("suppressed Node REPL tool calls from chat providers are not returned to Co
     converted.toolContext,
   );
 
+  assert.equal(response.output.length, 0);
+  assert.equal(response.output_text, "");
+  assert.doesNotMatch(JSON.stringify(response), /Node REPL/);
+});
+
+test("chat provider interactive tool responses keep command fallback and drop plugin bootstrap noise", () => {
+  const converted = responsesToChatRequest(
+    {
+      input: "Chrome 帮我打开 youtube",
+      tools: [
+        {
+          type: "function",
+          name: "shell_command",
+          description: "Run shell.",
+          parameters: {
+            type: "object",
+            properties: {
+              command: { type: "string" },
+            },
+            required: ["command"],
+          },
+        },
+      ],
+    },
+    route,
+    new ResponseHistory(),
+  );
+
+  const response = chatResponseToResponse(
+    {
+      id: "chatcmpl_interactive_noise",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call_open_chrome",
+                type: "function",
+                function: {
+                  name: "shell_command",
+                  arguments:
+                    '{"command":"Start-Process \\"chrome.exe\\" -ArgumentList \\"--new-window https://www.youtube.com\\""}',
+                },
+              },
+              {
+                id: "call_read_skill",
+                type: "function",
+                function: {
+                  name: "shell_command",
+                  arguments:
+                    '{"command":"Get-Content \\"C:\\\\Users\\\\Administrator\\\\.codex\\\\plugins\\\\cache\\\\openai-bundled\\\\chrome\\\\26.611.62324\\\\skills\\\\control-chrome\\\\SKILL.md\\" -Raw"}',
+                },
+              },
+              {
+                id: "call_node_repl",
+                type: "function",
+                function: {
+                  name: "mcp__node_repl__js",
+                  arguments: '{"code":"await browser.documentation()"}',
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+    "deepseek-v4-pro",
+    converted.toolContext,
+  );
+
   assert.equal(response.output.length, 1);
-  assert.equal(response.output[0].type, "message");
-  assert.match(response.output_text, /Node REPL/);
-  assert.match(response.output_text, /not available/);
+  assert.equal(response.output[0].type, "function_call");
+  assert.equal(response.output[0].name, "shell_command");
+  assert.equal(response.output[0].call_id, "call_open_chrome");
+  assert.match(response.output[0].arguments, /Start-Process/);
+  assert.doesNotMatch(JSON.stringify(response), /Node REPL/);
+  assert.doesNotMatch(JSON.stringify(response), /SKILL\.md/);
+});
+
+test("chat provider interactive command fallback hides visible Node REPL diagnostics", () => {
+  const converted = responsesToChatRequest(
+    {
+      input: "Chrome 帮我打开 youtube",
+      tools: [
+        {
+          type: "function",
+          name: "shell_command",
+          description: "Run shell.",
+          parameters: {
+            type: "object",
+            properties: {
+              command: { type: "string" },
+            },
+            required: ["command"],
+          },
+        },
+      ],
+    },
+    route,
+    new ResponseHistory(),
+  );
+
+  const response = chatResponseToResponse(
+    {
+      id: "chatcmpl_interactive_diagnostic",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content:
+              "看起来 Node REPL 的 js 工具暂时不可用，不过我可以用命令方式打开。",
+            tool_calls: [
+              {
+                id: "call_open_chrome",
+                type: "function",
+                function: {
+                  name: "shell_command",
+                  arguments:
+                    '{"command":"Start-Process \\"chrome.exe\\" -ArgumentList \\"--new-window https://www.youtube.com\\""}',
+                },
+              },
+              {
+                id: "call_node_repl",
+                type: "function",
+                function: {
+                  name: "mcp__node_repl__js",
+                  arguments: '{"code":"await browser.documentation()"}',
+                },
+              },
+            ],
+          },
+        },
+      ],
+    },
+    "deepseek-v4-pro",
+    converted.toolContext,
+  );
+
+  assert.equal(response.output.length, 1);
+  assert.equal(response.output[0].type, "function_call");
+  assert.equal(response.output[0].name, "shell_command");
+  assert.equal(response.output_text, "");
+  assert.doesNotMatch(JSON.stringify(response), /Node REPL/);
+});
+
+test("chat provider interactive diagnostic text can be suppressed without tool calls", () => {
+  const response = chatResponseToResponse(
+    {
+      id: "chatcmpl_interactive_text_only_diagnostic",
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content:
+              "Computer Use 的 Node REPL 环境当前不可用。不过我先用 PowerShell 打开记事本。",
+          },
+        },
+      ],
+    },
+    "deepseek-v4-pro",
+    { chatToolNames: new Set(["shell_command"]) },
+    { suppressInteractiveDiagnostics: true },
+  );
+
+  assert.equal(response.output.length, 0);
+  assert.equal(response.output_text, "");
+  assert.doesNotMatch(JSON.stringify(response), /Node REPL/);
 });
 
 test("Node REPL namespace tool choice is ignored for chat providers", () => {

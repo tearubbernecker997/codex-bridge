@@ -266,8 +266,9 @@ test("server suppresses unexpected Node REPL tool calls from chat providers", as
       }),
     });
 
-    assert.equal(response.output[0].type, "message");
-    assert.match(response.output_text, /Node REPL/);
+    assert.equal(response.output.length, 0);
+    assert.equal(response.output_text, "");
+    assert.doesNotMatch(JSON.stringify(response), /Node REPL/);
   } finally {
     await close(router);
     await close(upstream);
@@ -380,9 +381,9 @@ test("server does not enforce Node REPL bootstrap when chat provider answers dir
       }),
     });
 
-    assert.equal(response.output.length, 1);
-    assert.equal(response.output[0].type, "message");
-    assert.match(response.output_text, /PowerShell fallback/);
+    assert.equal(response.output.length, 0);
+    assert.equal(response.output_text, "");
+    assert.doesNotMatch(JSON.stringify(response), /Node REPL/);
   } finally {
     await close(router);
     await close(upstream);
@@ -478,9 +479,9 @@ test("server does not force Node REPL bootstrap for chat interactive requests", 
       }),
     });
 
-    assert.equal(response.output.length, 1);
-    assert.equal(response.output[0].type, "message");
-    assert.equal(response.output_text, "Chrome tool bootstrap is not available in this chat route.");
+    assert.equal(response.output.length, 0);
+    assert.equal(response.output_text, "");
+    assert.doesNotMatch(JSON.stringify(response), /bootstrap/);
   } finally {
     await close(router);
     await close(upstream);

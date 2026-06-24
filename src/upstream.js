@@ -406,7 +406,10 @@ export async function proxyChatCompletions(
     adjustedUpstream,
     requestBody.model || route.id,
     converted.toolContext,
-    { stripReasoningTags: shouldStripReasoningTags(route) },
+    {
+      stripReasoningTags: shouldStripReasoningTags(route),
+      suppressInteractiveDiagnostics: Boolean(interactivePluginKindForRequest(requestBody)),
+    },
   );
 
   history.record(response.id, [

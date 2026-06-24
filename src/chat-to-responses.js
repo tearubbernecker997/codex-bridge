@@ -9,8 +9,19 @@ export function chatResponseToResponse(chat, requestedModel, toolContext, option
   const choice = chat?.choices?.[0] || {};
   const message = choice.message || {};
   const id = responseIdFromChat(chat?.id);
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  const hasRunnableToolCall = toolCalls.some(
+    (toolCall) => !isSuppressedToolCall(toolCall, toolContext),
+  );
   const output = [];
   let text = visibleMessageText(message, options);
+  if (
+    isInternalBridgeDiagnosticText(text) ||
+    ((hasRunnableToolCall || options.suppressInteractiveDiagnostics) &&
+      isInteractiveDiagnosticText(text))
+  ) {
+    text = "";
+  }
 
   if (text) {
     output.push({
@@ -28,10 +39,12 @@ export function chatResponseToResponse(chat, requestedModel, toolContext, option
     });
   }
 
-  for (const toolCall of message.tool_calls || []) {
-    const suppressedMessage = suppressedToolCallMessage(toolCall, toolContext);
-    if (suppressedMessage) {
-      if (!text) {
+  for (const toolCall of toolCalls) {
+    if (isSuppressedToolCall(toolCall, toolContext)) {
+      const suppressedMessage = hasRunnableToolCall
+        ? ""
+        : suppressedToolCallMessage(toolCall, toolContext, false);
+      if (suppressedMessage && !text) {
         text = suppressedMessage;
         output.push({
           id: `msg_${stableFragment(id)}`,
@@ -67,18 +80,110 @@ export function chatResponseToResponse(chat, requestedModel, toolContext, option
   };
 }
 
-function suppressedToolCallMessage(toolCall, toolContext) {
+function suppressedToolCallMessage(toolCall, toolContext, hasRunnableToolCall = false) {
+  if (isInteractivePluginBootstrapRead(toolCall)) {
+    return "";
+  }
+
+  if (!isUnsupportedNodeReplToolCall(toolCall, toolContext)) {
+    return "";
+  }
+  return "";
+}
+
+function isSuppressedToolCall(toolCall, toolContext) {
+  return (
+    isInteractivePluginBootstrapRead(toolCall) ||
+    isUnsupportedNodeReplToolCall(toolCall, toolContext)
+  );
+}
+
+function isUnsupportedNodeReplToolCall(toolCall, toolContext) {
   const name = toolCall?.function?.name || toolCall?.name || "";
   if (name !== "mcp__node_repl__js") {
-    return "";
+    return false;
   }
-  if (toolContext?.chatToolNames?.has?.(name)) {
-    return "";
+  return !toolContext?.chatToolNames?.has?.(name);
+}
+
+function isInteractivePluginBootstrapRead(toolCall) {
+  const name = String(toolCall?.function?.name || toolCall?.name || "").toLowerCase();
+  if (!isCommandToolName(name)) {
+    return false;
+  }
+  const command = commandTextFromToolCall(toolCall).toLowerCase();
+  if (!command) {
+    return false;
+  }
+  const normalized = command.replace(/\//g, "\\");
+  return (
+    (normalized.includes("\\.codex\\plugins\\cache\\openai-bundled\\") ||
+      normalized.includes("\\plugins\\cache\\openai-bundled\\")) &&
+    (normalized.includes("\\chrome\\") ||
+      normalized.includes("\\browser\\") ||
+      normalized.includes("\\computer-use\\")) &&
+    (/get-content|get-childitem|skill\.md|browser-client\.mjs|computer-use-client\.mjs/.test(
+      normalized,
+    ))
+  );
+}
+
+function isCommandToolName(name) {
+  return (
+    name === "shell_command" ||
+    name === "exec_command" ||
+    name === "execute_command" ||
+    name.endsWith("__shell_command") ||
+    name.endsWith("__exec_command") ||
+    name.endsWith("__execute_command")
+  );
+}
+
+function isInternalBridgeDiagnosticText(text) {
+  const value = String(text || "");
+  if (!value.trim()) {
+    return false;
   }
   return (
-    "CodexBridge skipped the Node REPL tool call because Node REPL is not available " +
-    "for chat-routed models in this Codex Desktop session. Use a GPT subscription route " +
-    "for native Chrome/Computer Use, or use another available tool."
+    /Earlier assistant tool use was summarized for provider compatibility/i.test(value) ||
+    /Do not quote this summary as a new tool call/i.test(value) ||
+    /Assistant requested tool calls/i.test(value) ||
+    /Previous tool result .* without its matching assistant tool call/i.test(value)
+  );
+}
+
+function commandTextFromToolCall(toolCall) {
+  const args = toolCall?.function?.arguments ?? toolCall?.arguments ?? "";
+  if (typeof args === "string") {
+    try {
+      const parsed = JSON.parse(args);
+      if (parsed && typeof parsed === "object") {
+        return String(parsed.command || parsed.cmd || parsed.script || parsed.input || "");
+      }
+    } catch {
+      return args;
+    }
+  }
+  if (args && typeof args === "object") {
+    return String(args.command || args.cmd || args.script || args.input || "");
+  }
+  return "";
+}
+
+function isInteractiveDiagnosticText(text) {
+  const value = String(text || "");
+  if (!value.trim()) {
+    return false;
+  }
+  return (
+    /node\s*repl/i.test(value) ||
+    /unsupported\s+call/i.test(value) ||
+    /SKILL\.md/i.test(value) ||
+    /bootstrap.*(chrome|browser|computer use)/i.test(value) ||
+    /(chrome|browser|computer use).*bootstrap/i.test(value) ||
+    /chrome\/computer use/i.test(value) ||
+    /插件.*(环境|初始化|不可用|失败)/.test(value) ||
+    /工具.*(暂时不可用|不可用|被拒绝)/.test(value)
   );
 }
 
